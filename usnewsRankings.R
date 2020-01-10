@@ -51,17 +51,29 @@ d[d > 65] <- NA
 
 #draw plots
 dir.create("plots")
+reverseVertAxis <- T
 for(j in nrow(d):1){
   print(paste0(j, ": ", rownames(d)[j]))
   png(filename = paste0("plots/", j, "_", rownames(d)[j], ".png"), width = 1200, height = 1200)
-  par(mar = c(3,5,0,20.5))
   par(xpd=TRUE)
-  plot(1,1, bty="n", xlim = c(1984,2020), ylim = c(1,65), type = "n", xaxt = "n", yaxt="n", xlab = "", ylab = "")
-  title("U.S. News National University Rankings (1983 - 2020)", line = -4, adj = 0.05, cex.main = 3)
+  if(reverseVertAxis){
+    ylims <- c(65,1)
+    par(mar = c(0,5,5,20.5))
+  } else {
+    ylims <- c(1,65)
+    par(mar = c(3,5,0,20.5))
+  }
+  plot(1,1, bty="n", xlim = c(1984,2020), ylim = ylims, type = "n", xaxt = "n", yaxt="n", xlab = "", ylab = "")
   title(ylab="Rank", cex.lab=2)
   title(xlab = "Year", line=1.5, cex.lab=2)
   axis(side = 2, at = c(1:13*5-4), cex.axis=1.5)
-  axis(side = 1, at = 1983:2020, pos = 0, cex.axis = 1.25)
+  if(reverseVertAxis){
+    title("U.S. News National University Rankings (1983 - 2020)", line = 1, adj = 0.00, cex.main = 3)
+    axis(side = 3, at = 1983:2020, pos = 0, cex.axis = 1.25)
+  } else {
+    title("U.S. News National University Rankings (1983 - 2020)", line = -4, adj = 0.05, cex.main = 3)
+    axis(side = 1, at = 1983:2020, pos = 0, cex.axis = 1.25)  
+  }
     for(i in (1:length(d[,1]))[-j]){
       years <- as.numeric(colnames(d))
       rank <- d[i,]
@@ -98,7 +110,17 @@ library(magick)
 library(gtools)
 library(purrr)
 
-rev(mixedsort(list.files(path = "plots/", pattern = "*.png", full.names = T))) %>% 
+if(reverseVertAxis){
+  fileNames <- mixedsort(list.files(path = "plots/", pattern = "*.png", full.names = T))
+} else {
+  fileNames <- rev(mixedsort(list.files(path = "plots/", pattern = "*.png", full.names = T)))
+}
+
+for(i in 1:length(fileNames)){
+  image_write(image_crop(image = image_read(fileNames[i]), geometry = "1200x1150"), fileNames[i])
+}
+
+fileNames %>% 
   map(image_read) %>% 
   image_join() %>%  
   image_animate(fps=1) %>% 

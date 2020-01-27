@@ -62,3 +62,4 @@ apply(samps, 2, mean)
 cov(samps)
 par(mfrow = c(2,1))
 plot(samps[,1], type = "l"); abline(h = mean[1], col = 2); plot(samps[,2], type = "l"); abline(h = mean[2], col = 2)
+

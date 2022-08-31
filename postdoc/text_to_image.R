@@ -1,4 +1,4 @@
-#load libraries
+#### load libraries ####
 library(png)
 
 #functions
@@ -43,7 +43,6 @@ txt <- strsplit(txt, "")[[1]]
 # txt <- c(txt, txt)
 # txt <- txt[1:1E3]
 # txt <- strsplit(paste0(1:1E3, " ", collapse = ""), "")[[1]]
-#####
 
 #check text for illegal characters & evaluate fill proportion
 font = 2
@@ -100,38 +99,68 @@ get_char_propspace <- function(uc, font, family){
 uniqchars <- unique(txt)
 propspace_uniqchar <- sapply(uniqchars, function(uc) get_char_propspace(uc, font = font, family = family))
 
-# rotate image if desired
-rotation_angle <- 0 #-12.38
-if(rotation_angle - 0 > 1E-6){
-  diagpix <- ceiling(sqrt(ncol(img)^2 + nrow(img)^2))
-  rotimg <- array(0, dim = c(diagpix,diagpix,4))
-  orig_pixcoords <- as.data.frame(expand.grid(1:nrow(img), 1:ncol(img)))
-  colnames(orig_pixcoords) <- c("row", "col")
-  orig_pixcoords$row <- nrow(img) - orig_pixcoords$row + 1
-  pixcoords <- t(t(orig_pixcoords) - c(nrow(img), ncol(img)) / 2)
-  rotmat_00 <- function(t){r <- t / 360 * 2 * pi; matrix(c(cos(r), -sin(r), sin(r), cos(r)), 2, 2, byrow = T)}
-  rotmat <- rotmat_00(rotation_angle)
-  new_pixcoords <- t(rotmat %*% t(pixcoords))
-  new_pixcoords <- round(t(t(new_pixcoords) + c(diagpix, diagpix) / 2))
-  # new_pixcoords[,1] <- diagpix - new_pixcoords[,1] + 1
-  red <- img[,,1]; newred <- matrix(0, diagpix, diagpix)
-  green <- img[,,2]; newgreen <- matrix(0, diagpix, diagpix)
-  blue <- img[,,3]; newblue <- matrix(0, diagpix, diagpix)
-  alpha <- img[,,4]; newalpha <- matrix(0, diagpix, diagpix)
-  newred[as.matrix(new_pixcoords)] <- red[as.matrix(orig_pixcoords)]
-  newgreen[as.matrix(new_pixcoords)] <- green[as.matrix(orig_pixcoords)]
-  newblue[as.matrix(new_pixcoords)] <- blue[as.matrix(orig_pixcoords)]
-  newalpha[as.matrix(new_pixcoords)] <- alpha[as.matrix(orig_pixcoords)]
-  rotimg[,,1] <- newred
-  rotimg[,,2] <- newgreen
-  rotimg[,,3] <- newblue
-  rotimg[,,4] <- newalpha
-  img <- rotimg
-}
+#### rotate image if desired ###
+rotation_angle <- 0
+img <- EBImage::rotate(img, -rotation_angle) #let's just do it with an existing package :S
+rotmat_00 <- function(t){r <- t / 360 * 2 * pi; matrix(c(cos(r), -sin(r), sin(r), cos(r)), 2, 2, byrow = T)}
+# interpolate <- T
+# if(abs(rotation_angle - 0) > 1E-6){
+#   diagpix <- ceiling(sqrt(ncol(img)^2 + nrow(img)^2))
+#   rotimg <- array(0, dim = c(diagpix,diagpix,4))
+#   orig_pixcoords <- as.data.frame(expand.grid(1:nrow(img), 1:ncol(img)))
+#   colnames(orig_pixcoords) <- c("row", "col")
+#   orig_pixcoords$row <- nrow(img) - orig_pixcoords$row + 1
+#   pixcoords <- t(t(orig_pixcoords) - c(nrow(img), ncol(img)) / 2)
+#   
+#   rotmat <- rotmat_00(rotation_angle)
+#   new_pixcoords <- unrounded_pix_coords <- t(rotmat %*% t(pixcoords))
+#   new_pixcoords <- round(t(t(new_pixcoords) + c(diagpix, diagpix) / 2))
+#   
+#   red <- img[,,1]; newred <- matrix(0, diagpix, diagpix)
+#   green <- img[,,2]; newgreen <- matrix(0, diagpix, diagpix)
+#   blue <- img[,,3]; newblue <- matrix(0, diagpix, diagpix)
+#   alpha <- img[,,4]; newalpha <- matrix(0, diagpix, diagpix)
+#   
+#   #2x2 interpolation
+#   if(interpolate){
+#     alt_pixcoords <- unique(rbind(
+#       cbind(ceiling(unrounded_pix_coords[,1]), ceiling(unrounded_pix_coords[,2])),
+#       cbind(ceiling(unrounded_pix_coords[,1]), floor(unrounded_pix_coords[,2])),
+#       cbind(floor(unrounded_pix_coords[,1]), ceiling(unrounded_pix_coords[,2])),
+#       cbind(floor(unrounded_pix_coords[,1]), floor(unrounded_pix_coords[,2]))
+#     ))
+#     matching_alt_pixcoords <- t(rotmat_00(-rotation_angle) %*% t(alt_pixcoords))
+#     rmap <- round(matching_alt_pixcoords)
+#     indmatch <- match(apply(rmap, 1, paste0, collapse = ""), apply(pixcoords, 1, paste0, collapse = ""))
+#     alt_pixcoords <- alt_pixcoords[-is.na(indmatch),]
+#     indmatch <- indmatch[-is.na(indmatch)]
+#     alt_pixcoords <- round(t(t(alt_pixcoords) + c(diagpix, diagpix) / 2))
+#     
+#     newred[as.matrix(alt_pixcoords)] <- red[as.matrix(orig_pixcoords[indmatch,])]
+#     newgreen[as.matrix(alt_pixcoords)] <- green[as.matrix(orig_pixcoords[indmatch,])]
+#     newblue[as.matrix(alt_pixcoords)] <- blue[as.matrix(orig_pixcoords[indmatch,])]
+#     newalpha[as.matrix(alt_pixcoords)] <- alpha[as.matrix(orig_pixcoords[indmatch,])]
+#     
+#   } else {
+#     # new_pixcoords[,1] <- diagpix - new_pixcoords[,1] + 1
+#     newred[as.matrix(new_pixcoords)] <- red[as.matrix(orig_pixcoords)]
+#     newgreen[as.matrix(new_pixcoords)] <- green[as.matrix(orig_pixcoords)]
+#     newblue[as.matrix(new_pixcoords)] <- blue[as.matrix(orig_pixcoords)]
+#     newalpha[as.matrix(new_pixcoords)] <- alpha[as.matrix(orig_pixcoords)]
+# 
+#   }
+# 
+#   rotimg[,,1] <- newred
+#   rotimg[,,2] <- newgreen
+#   rotimg[,,3] <- newblue
+#   rotimg[,,4] <- newalpha
+#   img <- rotimg
+#   
+# }
 
 #get hits matrix
 hits <- img[,,1] + img[,,2] + img[,,3]
-hits_i <- which((abs(hits - 3) > 1E-9) & img[,,4] > 0.01) 
+hits_i <- which((abs(hits - 3) > 1E-9) & img[,,4] > 0.2) 
 hits[hits_i] <- 1
 hits[-hits_i] <- 0
 
@@ -155,7 +184,7 @@ hits[-hits_i] <- 0
 # }
 # dev.off()
 
-#### do harder fill ####
+#### do harder fill
 pxlw <- 1 / ncol(hits)
 pxlh <- 1 / nrow(hits)
 indhits <- which(hits == 1, arr.ind = T)
@@ -520,7 +549,9 @@ for(i in 1:nlines){
   yloc <- as.numeric(subcm[1,2])
   closest_indlocy <- indlocs$y[which.min(abs(yloc - indlocs$y))]
   subindlocs <- indlocs[abs(indlocs$y - closest_indlocy) < 1E-9,]
-  nearest_matches <- findInterval(subcm[,1], c(-Inf, subindlocs$x[-1]-diff(subindlocs$x)/2, Inf))
+  xlocs <- subcm$x + charwidths[subcm$char] / 2
+  
+  nearest_matches <- findInterval(xlocs, c(-Inf, subindlocs$x[-1]-diff(subindlocs$x)/2, Inf))
   native_cols <- subindlocs$col[nearest_matches]
   
   if(adjust_colors){
@@ -542,7 +573,15 @@ for(i in 1:nlines){
   
 }
 
-#draw the characters
+#### draw the characters ####
+
+if(abs(rotation_angle) > 1E-3){
+  rotmat <- rotmat_00(rotation_angle)
+  new_pixcoords <- t(rotmat %*% t(cbind(charmat$x - 0.5, charmat$y - 0.5)))
+  charmat$x <- new_pixcoords[,1] + 0.5
+  charmat$y <- new_pixcoords[,2] + 0.5
+}
+
 
 for(bcoli in 1:length(background_cols)){
   if(render_image){
@@ -554,44 +593,10 @@ for(bcoli in 1:length(background_cols)){
     for(i in (1:max_ind)){
       if(i %% round(length(txt) / 10) == 0) cat(i / round(length(txt) / 10) * 10, " ")
       text(labels = charmat$char[i], x = charmat$x[i] - ifelse(txt[i] == "Rethink Priorities", 0.02, 0), y = charmat$y[i],
-           col = charmat$col[i], cex = cex, font = font, pos = 4, family = family)
+           col = charmat$col[i], cex = cex, font = font, pos = 4, family = family, srt = rotation_angle)
       
     }
   }
   dev.off()
 }
 
-
-
-# tail(txtw, 1)
-# 
-# prop_letter <- sum(hits) / length(hits)
-# height_over_width <- nrow(hits) / ncol(hits)
-# width_in <- 18
-# height_in <- width_in * height_over_width
-# area_in2 <- width_in * height_in * prop_letter
-# area_cell <- area_in2 / sum(hits)
-# wh_cell <- sqrt(area_cell)
-# sf <- sqrt(area_in2 / txta)
-# 
-# cph <- charheight / wh_cell * sf
-# cpw <- txtw / wh_cell * sf
-# tail(cpw,1) * cph / sf / sf / sf / sf
-# 
-# 
-# 
-# cells_per_line_height <- unique(charheights)[1] * sf / wh_cell
-# cells_per_line_height * unique(charheights)[1] * strwidth(paste0(txt, collapse = ""), units = "inches") / unique(charheights)[1] * cells_per_line_height
-# 
-# #paint image
-# png("~/Pictures/out.png", width = ncol(hits) * 5, height = nrow(hits) * 5, units = "px")
-# plot(NA, NA, xlim = c(1,ncol(subhits)), ylim = c(1,nrow(subhits)),
-#       frame.plot = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
-# 
-# for(i in 1:length(cols)){
-#   if(i %% round(length(cols) / 100) == 0) cat(i / round(length(cols) / 100), " ")
-#   text(labels = txt[i], y = nrow(subhits) - indsubhits[i,1], x = indsubhits[i,2],
-#        col = cols[i], cex = 1, font = 2)
-# }
-# 
-# dev.off()

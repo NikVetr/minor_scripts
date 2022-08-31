@@ -72,6 +72,8 @@ d$group3 <- as.integer(d$group == 3)
 d$time1 <- as.integer(d$time == 1)
 d$time2 <- as.integer(d$time == 2)
 d$time3 <- as.integer(d$time == 3)
+d$days <- x$delta
+d$patient <- x$Patient
 # d$group1 <- as.integer(d$group == 1)
 # d$group2 <- as.integer(d$group == 2)
 # d$group3 <- as.integer(d$group == 3)
@@ -170,8 +172,8 @@ d$log_count <- log(d$count)
 # coef(traincv)
 
 #### ok, what about a Bayesian DE model ####
-dsub <- d[d$time %in% c(0,2),]
-# dsub <- d
+# dsub <- d[d$time %in% c(0,2),]
+dsub <- d
 dat <- list(n = nrow(dsub),
           n_prot = length(unique(dsub$prot)),
           n_group = length(unique(dsub$group)),
@@ -184,7 +186,7 @@ dat <- list(n = nrow(dsub),
           prot = dsub$prot
 )
 
-base = "basic_2timepoint_censored_poisson"
+base = "basic_stairway_censored_normal_approx"
 # STAN model
 #load libraries
 library(MASS)
@@ -193,6 +195,28 @@ library(cmdstanr)
 library(posterior)
 
 stan_program <- '
+functions {
+  int count_elem(int[] test, int elem) {
+    int count;
+    count = 0;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem)
+        count = count + 1;
+    return(count);
+  }
+  
+  int[] which_elem(int[] test, int elem) {
+    int res[count_elem(test, elem)];
+    int ci;
+    ci = 1;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem) {
+        res[ci] = i;
+        ci = ci + 1;
+      }
+    return(res);
+  }
+}
 data {
     int<lower=1> n;
     int<lower=1> n_prot;
@@ -207,8 +231,11 @@ data {
     int<lower=1, upper=n_prot> prot[n];
 }
 transformed data {
-    //real log_count[n] = log(count);
     real log_censor_threshold = log(censor_threshold);
+    int cens_idx[count_elem(uncens, 0)] = which_elem(uncens, 0);
+    real cens_log_count[count_elem(uncens, 0)] = log_count[cens_idx];
+    int uncens_idx[count_elem(uncens, 1)] = which_elem(uncens, 1);
+    real uncens_log_count[count_elem(uncens, 1)] = log_count[uncens_idx];
 }
 parameters {
     real B_raw[n_time, n_group, n_prot];
@@ -220,13 +247,14 @@ transformed parameters {
     real B[n];
     for(i in 1:n){
       real B_temp = 0;
-      for(j in 1:time[i]){
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      for(j in 1:t){
         if(group[i] == 1){
-          B_temp = B_temp + B_mean[time[i], group[i]] + B_raw[time[i], group[i], prot[i]] * B_sd[time[i], group[i]];
+          B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
         } else {
-          B_temp = B_temp + B_mean[time[i], 1] + B_mean[time[i], group[i]] + 
-                   B_raw[time[i], 1, prot[i]] * B_sd[time[i], 1] +
-                   B_raw[time[i], group[i], prot[i]] * B_sd[time[i], group[i]];
+          B_temp += B_mean[j, 1] + B_mean[j, g] + 
+                   B_raw[j, 1, p] * B_sd[j, 1] +
+                   B_raw[j, g, p] * B_sd[j, g];
         }
       }
       B[i] = B_temp;
@@ -236,23 +264,19 @@ model {
     //priors
     for(i in 1:n_time){
       B_mean[i,] ~ normal(0,10);
-      B_sd[i,] ~ normal(0,5);
+      B_sd[i,] ~ normal(0,2);
       for(j in 1:n_group){
         B_raw[i,j,] ~ std_normal();  
       }
     }
-    sigma ~ normal(0,5);
+    sigma ~ normal(0,2);
     
-    //likelihood
-    log_count ~ normal(B, sigma);
-    
-    //normal model for noncensored data
-    //count_0 ~ poisson(exp(t0_mean + t0_prot[prot_comp_0] + t0_indiv[indiv_comp_0]));
-    //count_1 ~ poisson(exp(t1_mean + t1_prot[prot_comp_1] + t1_indiv[indiv_comp_1]));
+    //uncensored obs likelihood
+    uncens_log_count ~ normal(B[uncens_idx], sigma);
     
     //censored obs
-    //target += poisson_lcdf(censor_threshold | exp(t0_mean + t0_prot[prot_cens_0] + t0_indiv[indiv_cens_0]));
-    //target += poisson_lcdf(censor_threshold | exp(t1_mean + t1_prot[prot_cens_1] + t1_indiv[indiv_cens_1]));
+    target += normal_lcdf(log_censor_threshold | B[cens_idx], sigma);
+    
 }
 '
 
@@ -267,8 +291,8 @@ write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base))
 write_stan_json(dat, paste0("~/Desktop/", paste0(base, ".json")))
 fit_model <- T
 if(fit_model){
-  out <- mod$sample(chains = 4, iter_sampling = 1E2, iter_warmup = 1E2, data = dat, parallel_chains = 4, 
-                    adapt_delta = 0.85, refresh = 1, init = 0.1, max_treedepth = 20, thin = 2)
+  out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, parallel_chains = 4, 
+                    adapt_delta = 0.85, refresh = 10, init = 0.1, max_treedepth = 15, thin = 1)
   summ <- out$summary()
   print(summ[order(summ$ess_bulk),])
   print(summ[order(summ$rhat, decreasing = T),])
@@ -277,4 +301,258 @@ if(fit_model){
   load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
 }
 
+#examine posterior output
 samps <- data.frame(as_draws_df(out$draws()))
+subset_samps <- function(include = "", exclude = NULL, samps){
+  incl_inds <- unique(unlist(lapply(include, function(i) grep(i, colnames(samps)))))
+  if(length(exclude) != 0){
+    excl_inds <- unique(unlist(lapply(exclude, function(i) grep(i, colnames(samps)))))
+    incl_inds <- setdiff(incl_inds, excl_inds)  
+  } 
+  return(samps[,incl_inds])
+}
+prop_greater_than_0 <- function(x) mean(x>0)
+
+B_raw <- subset_samps("B_raw", samps = samps)
+B_sd <- subset_samps("B_sd", samps = samps)
+B_mean <- subset_samps("B_mean", samps = samps)
+
+
+vec2array <- function(samples, sep = "\\."){
+  inds <- apply(do.call(rbind, strsplit(names(samples), sep))[,-1], 2, as.numeric)
+  samples_array <- array(NA, c(sapply(apply(inds, 2, unique), length), nrow(samples)))
+  for(i in 1:nrow(inds)){
+    if(i %% 100 == 0){cat(paste0(i, " "))}
+    expr <- paste0(
+      "samples_array[", 
+      paste0("inds[i,", 1:ncol(inds), "]", collapse = ", "),
+      ",] <- samples[,i]"
+    )
+    eval(parse(text = expr))
+  }
+  samples_array
+}
+
+B_mean_array <- vec2array(B_mean)
+B_raw_array <- vec2array(B_raw)
+B_sd_array <- vec2array(B_sd)
+
+
+B_relative_array <- B_raw_array
+B_array <- B_raw_array
+dims <- dim(B_array) #time, group, prot
+B_above_0 <- array(dim = dims[1:3])
+B_above_0_relative <- array(dim = dims[1:3])
+for(t in 1:dims[1]){
+  for(g in 1:dims[2]){
+    for(p in 1:dims[3]){
+      B_temp <- rep(0, dims[length(dims)])
+      B_temp_relative <- rep(0, dims[length(dims)])
+      for(tc in 1:t){
+         B_temp <- B_temp + B_raw_array[tc,g,p,] * B_sd_array[tc,g,] + B_mean_array[tc,g,]
+         B_temp_relative <- B_temp_relative + B_raw_array[tc,g,p,] * B_sd_array[tc,g,]
+      }
+      B_array[t,g,p,] <- B_temp
+      B_relative_array[t,g,p,] <- B_temp_relative
+      B_above_0[t,g,p] <- mean(B_temp > 0)
+      B_above_0_relative[t,g,p] <- mean(B_temp_relative > 0)
+    }
+  }
+}
+
+groups
+group_cols <- c("black", "blue", "green")
+
+par(mfrow=c(2,2))
+hist(B_above_0_relative[1,-1,], breaks = 0:20/20, main = "time-1 protein-specific deviations from\naverage deviation from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0_relative[1,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+hist(B_above_0_relative[2,-1,], breaks = 0:20/20, main = "time-2 protein-specific deviations from\naverage deviation from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0_relative[2,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+hist(B_above_0_relative[3,-1,], breaks = 0:20/20, main = "time-3 protein-specific deviations from\naverage deviation from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0_relative[3,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+hist(B_above_0_relative[4,-1,], breaks = 0:20/20, main = "time-4 protein-specific deviations from\naverage deviation from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0_relative[4,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+
+# plot(B_above_0_relative[1,-1,], B_above_0_relative[4,-1,])
+
+par(mfrow=c(2,2))
+hist(B_above_0[1,-1,], breaks = 0:20/20, main = "time-1 protein-specific deviations from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0[1,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+hist(B_above_0[2,-1,], breaks = 0:20/20, main = "time-2 protein-specific deviations from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0[2,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+legend("topright", col = c(1,"blue","green"), legend = groups, pch = 15)
+hist(B_above_0[3,-1,], breaks = 0:20/20, main = "time-3 protein-specific deviations from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0[3,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+hist(B_above_0[4,-1,], breaks = 0:20/20, main = "time-4 protein-specific deviations from \'Normal\' trajectory",
+     xlab = "probability effect is above 0", ylab = "# proteins", col = group_cols[3])
+hist(B_above_0[4,2,], breaks = 0:20/20, add = T, col = group_cols[2])
+
+
+par(mfrow=c(1,1))
+yvals <- do.call(rbind, lapply(1:3, function(g) cumsum(sapply(1:4, function(t) mean(B_mean_array[t,g,])))))
+yvals[2,] <- yvals[2,] + yvals[1,]
+yvals[3,] <- yvals[3,] + yvals[1,]
+plot(1:4, yvals[1,], type = "l", ylim = range(yvals), xaxt = "n",
+     xlab = "timepoint", ylab = latex2exp::TeX("$log_e(posterior\\_mean)"), lwd = 2)
+axis(1, 1:4, 1:4)
+lines(yvals[2,], col = "blue", lwd = 2)
+lines(yvals[3,], col = "green", lwd = 2)
+legend("topright", col = c(1,"blue","green"), legend = groups, lwd = 2)
+
+groups
+plot(sapply(0:3, function(t) mean(d$log_count[d$group == 3 & d$time == t & d$cens == 1])), type = "l")
+
+
+#### let's try a version that incorporates patient effects ####
+# dsub <- d[d$time %in% c(0,2),]
+dsub <- d
+dat <- list(n = nrow(dsub),
+            n_prot = length(unique(dsub$prot)),
+            n_group = length(unique(dsub$group)),
+            n_time = length(unique(dsub$time)),
+            n_patient = length(unique(dsub$patient)),
+            censor_threshold = L,
+            log_count = log(dsub$count),
+            uncens = dsub$cens,
+            group = dsub$group,
+            time = match(dsub$time, sort(unique(dsub$time))),
+            prot = dsub$prot,
+            patient = dsub$patient
+)
+
+base = "basic_stairway_censored_normal_approx_patientRE"
+# STAN model
+#load libraries
+library(MASS)
+library(mvtnorm)
+library(cmdstanr)
+library(posterior)
+
+stan_program <- '
+functions {
+  int count_elem(int[] test, int elem) {
+    int count;
+    count = 0;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem)
+        count = count + 1;
+    return(count);
+  }
+  
+  int[] which_elem(int[] test, int elem) {
+    int res[count_elem(test, elem)];
+    int ci;
+    ci = 1;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem) {
+        res[ci] = i;
+        ci = ci + 1;
+      }
+    return(res);
+  }
+}
+data {
+    int<lower=1> n;
+    int<lower=1> n_prot;
+    int<lower=1> n_group;
+    int<lower=1> n_time;
+    int<lower=1> n_patient;
+    int<lower=0> censor_threshold;
+    //int<lower=0> count[n];
+    real log_count[n];
+    int<lower=0, upper=1> uncens[n];
+    int<lower=1, upper=n_group> group[n];
+    int<lower=1, upper=n_time> time[n];
+    int<lower=1, upper=n_prot> prot[n];
+    int<lower=1, upper=n_patient> patient[n];
+}
+transformed data {
+    real log_censor_threshold = log(censor_threshold);
+    int cens_idx[count_elem(uncens, 0)] = which_elem(uncens, 0);
+    real cens_log_count[count_elem(uncens, 0)] = log_count[cens_idx];
+    int uncens_idx[count_elem(uncens, 1)] = which_elem(uncens, 1);
+    real uncens_log_count[count_elem(uncens, 1)] = log_count[uncens_idx];
+}
+parameters {
+    real B_raw[n_time, n_group, n_prot];
+    real<lower=0> B_sd[n_time, n_group];
+    real B_mean[n_time, n_group];
+
+    real B_pat_raw[n_patient, n_prot];
+    real<lower=0> B_pat_sd[n_patient];
+    real B_pat_mean[n_patient];
+    
+    real<lower=0> sigma;
+}
+transformed parameters {
+    real B[n];
+    for(i in 1:n){
+      real B_temp = 0;
+      int t = time[i];  int g = group[i];  int p = prot[i]; int pat = patient[i];
+      B_temp += B_pat_mean[pat] + B_pat_raw[pat, p] * B_pat_sd[pat];
+      for(j in 1:t){
+        if(group[i] == 1){
+          B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+        } else {
+          B_temp += B_mean[j, 1] + B_mean[j, g] + 
+                   B_raw[j, 1, p] * B_sd[j, 1] +
+                   B_raw[j, g, p] * B_sd[j, g];
+        }
+      }
+      B[i] = B_temp;
+    }
+}
+model {
+    //priors
+    for(i in 1:n_time){
+      B_mean[i,] ~ normal(0,10);
+      B_sd[i,] ~ normal(0,2);
+      for(j in 1:n_group){
+        B_raw[i,j,] ~ std_normal();  
+      }
+    }
+    
+    for(pat in 1:n_patient){
+      B_pat_raw[pat,] ~ std_normal();
+    }
+    B_pat_sd ~ normal(0,2);
+    B_pat_mean ~ normal(0,5);
+    
+    sigma ~ normal(0,2);
+    
+    //uncensored obs likelihood
+    uncens_log_count ~ normal(B[uncens_idx], sigma);
+    
+    //censored obs
+    target += normal_lcdf(log_censor_threshold | B[cens_idx], sigma);
+    
+}
+'
+
+if(!exists("curr_stan_program") || stan_program != curr_stan_program){
+  curr_stan_program <- stan_program
+  f <- write_stan_file(stan_program)
+}
+mod <- cmdstan_model(f)
+
+#fit model
+write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base))
+write_stan_json(dat, paste0("~/Desktop/", paste0(base, ".json")))
+fit_model <- T
+if(fit_model){
+  out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, parallel_chains = 4, 
+                    adapt_delta = 0.85, refresh = 10, init = 0.1, max_treedepth = 15, thin = 1)
+  summ <- out$summary()
+  print(summ[order(summ$ess_bulk),])
+  print(summ[order(summ$rhat, decreasing = T),])
+  save(out, file = paste0("~/Desktop/", paste0(base, ".cmdStanR.fit")))
+} else {
+  load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
+}

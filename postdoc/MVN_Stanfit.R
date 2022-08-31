@@ -26,16 +26,21 @@ rlkj <- function (K, eta = 1) {
 #### start of with known MVN observations ####
 
 # Simulate some data
-n_dim <- 50
+n_dim <- 10
 mu <- rnorm(n_dim, 0, sd = 3)
 R <- rlkj(n_dim, 1)
 sds <- rexp(n_dim, rate = 0.5)
+
+# R <- diag(n_dim) + 0.9 - diag(n_dim) * 0.9
+# sds <- rep(2, n_dim)
+# mu <- c(rep(0, n_dim-1), rep(5, 1))
+
 Sig <- diag(sds) %*% R %*% diag(sds)
 N <- 150
 dat <- mvrnorm(N, mu, Sig)
 
 # Randomly remove some data
-frac_missing <- 0.02
+frac_missing <- 0
 n_miss <- N*n_dim*frac_missing
 miss <- sample.int(prod(dim(dat)), size = n_miss)
 dat[miss] <- NA

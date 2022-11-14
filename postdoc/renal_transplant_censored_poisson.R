@@ -74,6 +74,8 @@ d$time2 <- as.integer(d$time == 2)
 d$time3 <- as.integer(d$time == 3)
 d$days <- x$delta
 d$patient <- x$Patient
+extracts <- unique(x$Extract)
+d$extract <- match(x$Extract, extracts)
 # d$group1 <- as.integer(d$group == 1)
 # d$group2 <- as.integer(d$group == 2)
 # d$group3 <- as.integer(d$group == 3)
@@ -171,6 +173,93 @@ d$log_count <- log(d$count)
 # fit <- glmnet(x = x, dw$group_name, family = "multinomial", type.multinomial = "ungrouped",nfolds =3)
 # coef(traincv)
 
+#do basic EDA to find var within prot & timepoint between subj vs between prot within subj & timepoint
+
+sapply(sort(unique(d$time)), function(ti){
+  mean(sapply(sort(unique(d$prot)), function(pi){
+    ds <- d$log_count[d$time == ti & d$prot == pi]
+    var(ds)
+  }))
+})
+
+group_indices <- setNames(sort(unique(d$group)), groups)
+time_indices <- setNames(sort(unique(d$time)), paste0("t", sort(unique(d$time))))
+protein_indices <- setNames(sort(unique(d$prot)), prots)
+patient_indices <- setNames(sort(unique(d$patient)), paste0("patient_", sort(unique(d$patient))))
+extract_indices <- setNames(sort(unique(d$extract)), extracts)
+
+#sample sds
+ei <- extract_indices[1]
+sapply(group_indices, function(gi){
+  sapply(time_indices, function(ti){
+    mean(sapply(protein_indices, function(pi){
+      ds <- d$log_count[d$time == ti & d$prot == pi & d$group == gi & d$extract == ei]
+      sd(ds)
+    }), na.rm = T)
+  })
+})
+
+sapply(group_indices, function(gi){
+  sapply(time_indices, function(ti){
+    mean(sapply(patient_indices, function(pi){
+      ds <- d$log_count[d$time == ti & d$patient == pi & d$group == gi & d$extract == ei]
+      var(ds)
+    }), na.rm = T)
+  })
+})
+
+sapply(group_indices, function(gi){
+  sapply(time_indices, function(ti){
+    ds <- d$log_count[d$time == ti & d$group == gi & d$extract == ei]
+    sd(ds)
+  })
+})
+
+
+#sample sds vs t0
+sapply(group_indices, function(gi){
+  sapply(time_indices[-1], function(ti){
+    mean(sapply(protein_indices, function(pi){
+      d0 <- d[d$time == 0 & d$prot == pi & d$group == gi & d$extract == ei,]
+      ds <- d[d$time == ti & d$prot == pi & d$group == gi & d$extract == ei,]
+      sd(ds$log_count - d0$log_count)
+    }), na.rm = T)
+  })
+})
+
+sapply(group_indices, function(gi){
+  sapply(time_indices[-1], function(ti){
+    mean(sapply(patient_indices, function(pi){
+      d0 <- d[d$time == 0 & d$patient == pi & d$group == gi & d$extract == ei,]
+      ds <- d[d$time == ti & d$patient == pi & d$group == gi & d$extract == ei,]
+      d0 <- d0[match(ds$prot, d0$prot),]
+      var(ds$log_count - d0$log_count)
+    }), na.rm = T)
+  })
+})
+
+sapply(group_indices, function(gi){
+  sapply(time_indices[-1], function(ti){
+      d0 <- d[d$time == 0 & d$group == gi & d$extract == ei,]
+      ds <- d[d$time == ti & d$group == gi & d$extract == ei,]
+      sd(ds$log_count - d0$log_count)
+  })
+})
+
+#look at extract differences?
+sapply(group_indices, function(gi){
+  sapply(time_indices, function(ti){
+    var(c(unlist(sapply(patient_indices, function(pi){
+        ds_e1 <- d[d$time == ti & d$patient == pi & d$group == gi & d$extract == 1,]
+        ds_e2 <- d[d$time == ti & d$patient == pi & d$group == gi & d$extract == 2,]
+        ds_e1 <- ds_e1[match(ds_e2$prot, ds_e1$prot),]
+        out <- ds_e1$log_count - ds_e2$log_count
+        out
+    }))))
+  })
+})
+
+
 #### ok, what about a Bayesian DE model ####
 # dsub <- d[d$time %in% c(0,2),]
 dsub <- d
@@ -186,7 +275,6 @@ dat <- list(n = nrow(dsub),
           prot = dsub$prot
 )
 
-base = "basic_stairway_censored_normal_approx"
 # STAN model
 #load libraries
 library(MASS)
@@ -194,6 +282,7 @@ library(mvtnorm)
 library(cmdstanr)
 library(posterior)
 
+base = "basic_stairway_censored_normal_approx"
 stan_program <- '
 functions {
   int count_elem(int[] test, int elem) {
@@ -280,6 +369,350 @@ model {
 }
 '
 
+base = "basic_stairway_censored_normal_approx_spikeNslab"
+stan_program <- '
+functions {
+  int count_elem(int[] test, int elem) {
+    int count;
+    count = 0;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem)
+        count = count + 1;
+    return(count);
+  }
+  
+  int[] which_elem(int[] test, int elem) {
+    int res[count_elem(test, elem)];
+    int ci;
+    ci = 1;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem) {
+        res[ci] = i;
+        ci = ci + 1;
+      }
+    return(res);
+  }
+}
+data {
+    int<lower=1> n;
+    int<lower=1> n_prot;
+    int<lower=1> n_group;
+    int<lower=1> n_time;
+    int<lower=0> censor_threshold;
+    //int<lower=0> count[n];
+    real log_count[n];
+    int<lower=0, upper=1> uncens[n];
+    int<lower=1, upper=n_group> group[n];
+    int<lower=1, upper=n_time> time[n];
+    int<lower=1, upper=n_prot> prot[n];
+}
+transformed data {
+    real log_censor_threshold = log(censor_threshold);
+    
+    int<lower=0> n_cens = count_elem(uncens, 0);
+    int cens_idx[n_cens] = which_elem(uncens, 0);
+    real cens_log_count[n_cens] = log_count[cens_idx];
+    
+    int<lower=0> n_uncens = count_elem(uncens, 1);
+    int uncens_idx[n_uncens] = which_elem(uncens, 1);
+    real uncens_log_count[n_uncens] = log_count[uncens_idx];
+}
+parameters {
+    real B_raw[n_time, n_group, n_prot];
+    real<lower=0> B_sd[n_time, n_group];
+    real B_mean[n_time, n_group];
+    real<lower=0> sigma;
+    
+    real<lower=0, upper=1> gamma[n_group, n_prot];
+    real<lower=0, upper=1> gamma_mean[n_group];
+    real<lower=0.1> gamma_conc[n_group];
+}
+transformed parameters {
+    real B_1[n];
+    for(i in 1:n){
+      real B_temp_1 = 0;
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      for(j in 1:t){
+        if(group[i] == 1){
+          B_temp_1 += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+        } else {
+          B_temp_1 += B_mean[j, 1] + B_mean[j, g] + 
+                   B_raw[j, 1, p] * B_sd[j, 1] +
+                   B_raw[j, g, p] * B_sd[j, g];
+        }
+      }
+      B_1[i] = B_temp_1;
+    }
+    
+    real B_2[n];
+    for(i in 1:n){
+      real B_temp_2 = 0;
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      for(j in 1:t){
+        B_temp_2 += B_mean[j, 1] + B_raw[j, 1, p] * B_sd[j, 1];
+      }
+      B_2[i] = B_temp_2;
+    }
+}
+model {
+    //(hyper)priors for coef
+    for(i in 1:n_time){
+      B_mean[i,] ~ normal(0,10);
+      B_sd[i,] ~ normal(0,2);
+      for(j in 1:n_group){
+        B_raw[i,j,] ~ std_normal();  
+      }
+    }
+    sigma ~ normal(0,2);
+    
+    //(hyper)priors for mixture param
+    gamma_mean ~ beta(1, 1);
+    gamma_conc ~ pareto(0.1, 1.5);
+    for(j in 1:n_group){
+      gamma[j,] ~ beta(gamma_mean[j] * gamma_conc[j], (1 - gamma_mean[j]) * gamma_conc[j]);
+    }
+    
+    //uncensored obs likelihood -- need to marginalize over probability each protein has 0 deviation
+    for (i in 1:n_uncens) {
+         target += log_mix(gamma[group[uncens_idx[i]], prot[uncens_idx[i]]],
+                      normal_lpdf(uncens_log_count[i] | B_1[uncens_idx[i]], sigma), 
+                      normal_lpdf(uncens_log_count[i] | B_2[uncens_idx[i]], sigma));
+    }
+    
+    //censored obs
+    for (i in cens_idx) {
+         target += log_mix(gamma[group[i], prot[i]],
+                      normal_lcdf(log_censor_threshold | B_1[i], sigma), 
+                      normal_lcdf(log_censor_threshold | B_2[i], sigma));
+    }
+}
+'
+
+dsub <- d[d$group == 3 & d$time %in% c(0,2),]
+dat <- list(n = nrow(dsub),
+            n_prot = length(unique(dsub$prot)),
+            n_group = length(unique(dsub$group)),
+            n_time = length(unique(dsub$time)),
+            censor_threshold = L,
+            log_count = log(dsub$count),
+            uncens = dsub$cens,
+            group = rep(1, nrow(dsub)),
+            time = match(dsub$time, sort(unique(dsub$time))),
+            prot = dsub$prot
+)
+base = "basic_stairway_censored_normal_approx_spikeNslab_1group"
+stan_program <- '
+functions {
+  int count_elem(int[] test, int elem) {
+    int count;
+    count = 0;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem)
+        count = count + 1;
+    return(count);
+  }
+  
+  int[] which_elem(int[] test, int elem) {
+    int res[count_elem(test, elem)];
+    int ci;
+    ci = 1;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem) {
+        res[ci] = i;
+        ci = ci + 1;
+      }
+    return(res);
+  }
+}
+data {
+    int<lower=1> n;
+    int<lower=1> n_prot;
+    int<lower=1> n_group;
+    int<lower=1> n_time;
+    int<lower=0> censor_threshold;
+    //int<lower=0> count[n];
+    real log_count[n];
+    int<lower=0, upper=1> uncens[n];
+    int<lower=1, upper=n_group> group[n];
+    int<lower=1, upper=n_time> time[n];
+    int<lower=1, upper=n_prot> prot[n];
+}
+transformed data {
+    real log_censor_threshold = log(censor_threshold);
+    
+    int<lower=0> n_cens = count_elem(uncens, 0);
+    int cens_idx[n_cens] = which_elem(uncens, 0);
+    real cens_log_count[n_cens] = log_count[cens_idx];
+    
+    int<lower=0> n_uncens = count_elem(uncens, 1);
+    int uncens_idx[n_uncens] = which_elem(uncens, 1);
+    real uncens_log_count[n_uncens] = log_count[uncens_idx];
+}
+parameters {
+    real B_raw[n_time, n_group, n_prot];
+    real<lower=0> B_sd[n_time, n_group];
+    real B_mean[n_time, n_group];
+    real<lower=0> sigma;
+    
+    real<lower=0, upper=1> gamma[n_group, n_prot];
+    real<lower=0, upper=1> gamma_mean[n_group];
+    real<lower=0.1> gamma_conc[n_group];
+}
+transformed parameters {
+
+}
+model {
+    //(hyper)priors for coef
+    for(i in 1:n_time){
+      B_mean[i,] ~ normal(0,10);
+      B_sd[i,] ~ normal(0,2);
+      for(j in 1:n_group){
+        B_raw[i,j,] ~ std_normal();  
+      }
+    }
+    sigma ~ normal(0,2);
+    
+    //(hyper)priors for mixture param
+    gamma_mean ~ beta(1, 1);
+    gamma_conc ~ pareto(0.1, 1.5);
+    for(j in 1:n_group){
+      gamma[j,] ~ beta(gamma_mean[j] * gamma_conc[j], (1 - gamma_mean[j]) * gamma_conc[j]);
+    }
+    
+    //combine the effects
+    real B_1[n];
+    for(i in 1:n){
+      real B_temp_1 = 0;
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      for(j in 1:t){
+        B_temp_1 += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+      }
+      B_1[i] = B_temp_1;
+    }
+    
+    real B_2[n];
+    for(i in 1:n){
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      B_2[i] = B_mean[1, g] + B_raw[1, g, p] * B_sd[1, g];
+    }
+    
+    //uncensored obs likelihood
+    for (i in uncens_idx) {
+         target += log_mix(gamma[group[i], prot[i]],
+                      normal_lpdf(log_count[i] | B_1[i], sigma), 
+                      normal_lpdf(log_count[i] | B_2[i], sigma));
+    }
+    
+    //censored obs
+    for (i in cens_idx) {
+         target += log_mix(gamma[group[i], prot[i]],
+                      normal_lcdf(log_censor_threshold | B_1[i], sigma), 
+                      normal_lcdf(log_censor_threshold | B_2[i], sigma));
+    }
+}
+'
+
+#ok, let's ignore the spike and slab for now
+focal_group <- 1
+timepoints <- c(0,2)
+dsub <- d[d$group == focal_group & d$time %in% timepoints,]
+dat <- list(n = nrow(dsub),
+            n_prot = length(unique(dsub$prot)),
+            n_group = length(unique(dsub$group)),
+            n_time = length(unique(dsub$time)),
+            censor_threshold = L,
+            log_count = log(dsub$count),
+            uncens = dsub$cens,
+            group = rep(1, nrow(dsub)),
+            time = match(dsub$time, sort(unique(dsub$time))),
+            prot = dsub$prot
+)
+base <- paste0("stairway_censored_normal_approx_group-", focal_group, "_timepoints-", paste0(timepoints, collapse = ","))
+stan_program <- '
+functions {
+  int count_elem(int[] test, int elem) {
+    int count;
+    count = 0;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem)
+        count = count + 1;
+    return(count);
+  }
+  
+  int[] which_elem(int[] test, int elem) {
+    int res[count_elem(test, elem)];
+    int ci;
+    ci = 1;
+    for(i in 1:num_elements(test))
+      if(test[i] == elem) {
+        res[ci] = i;
+        ci = ci + 1;
+      }
+    return(res);
+  }
+}
+data {
+    int<lower=1> n;
+    int<lower=1> n_prot;
+    int<lower=1> n_group;
+    int<lower=1> n_time;
+    int<lower=0> censor_threshold;
+    //int<lower=0> count[n];
+    real log_count[n];
+    int<lower=0, upper=1> uncens[n];
+    int<lower=1, upper=n_group> group[n];
+    int<lower=1, upper=n_time> time[n];
+    int<lower=1, upper=n_prot> prot[n];
+}
+transformed data {
+    real log_censor_threshold = log(censor_threshold);
+    
+    int<lower=0> n_cens = count_elem(uncens, 0);
+    int cens_idx[n_cens] = which_elem(uncens, 0);
+    real cens_log_count[n_cens] = log_count[cens_idx];
+    
+    int<lower=0> n_uncens = count_elem(uncens, 1);
+    int uncens_idx[n_uncens] = which_elem(uncens, 1);
+    real uncens_log_count[n_uncens] = log_count[uncens_idx];
+}
+parameters {
+    real B_raw[n_time, n_group, n_prot];
+    real<lower=0> B_sd[n_time, n_group];
+    real B_mean[n_time, n_group];
+    real<lower=0> sigma[n_time];
+}
+model {
+    //(hyper)priors for coef
+    for(i in 1:n_time){
+      B_mean[i,] ~ normal(0,10);
+      B_sd[i,] ~ normal(0,2);
+      for(j in 1:n_group){
+        B_raw[i,j,] ~ std_normal();  
+      }
+    }
+    sigma ~ normal(0,2);
+    
+    //combine the effects
+    real B[n];
+    for(i in 1:n){
+      real B_temp = 0;
+      int t = time[i];  int g = group[i];  int p = prot[i];
+      for(j in 1:t){
+        B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+      }
+      B[i] = B_temp;
+    }
+    
+    //uncensored obs likelihood
+    uncens_log_count ~ normal(B[uncens_idx], sigma[time[uncens_idx]]);
+    
+    //censored obs
+    target += normal_lcdf(log_censor_threshold | B[cens_idx], sigma[time[uncens_idx]]);
+    
+}
+'
+
+
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){
   curr_stan_program <- stan_program
   f <- write_stan_file(stan_program)
@@ -291,18 +724,22 @@ write_stan_file(stan_program, dir = "~/Desktop/", basename = paste0(base))
 write_stan_json(dat, paste0("~/Desktop/", paste0(base, ".json")))
 fit_model <- T
 if(fit_model){
-  out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, parallel_chains = 4, 
-                    adapt_delta = 0.85, refresh = 10, init = 0.1, max_treedepth = 15, thin = 1)
+  out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = dat, parallel_chains = 4, 
+                    adapt_delta = 0.95, refresh = 10, init = 0.1, max_treedepth = 15, thin = 2)
   summ <- out$summary()
-  print(summ[order(summ$ess_bulk),])
-  print(summ[order(summ$rhat, decreasing = T),])
   save(out, file = paste0("~/Desktop/", paste0(base, ".cmdStanR.fit")))
+  save(summ, file = paste0("~/Desktop/", paste0(base, ".cmdStanR.diag")))
 } else {
   load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
+  load(paste0("~/Desktop/", paste0(base,".cmdStanR.diag")))
 }
+print(summ[order(summ$ess_bulk),])
+print(summ[order(summ$rhat, decreasing = T),])
 
 #examine posterior output
 samps <- data.frame(as_draws_df(out$draws()))
+# pairs(samps[,c("B_sd.2.1.", "gamma_conc.1.", "gamma_mean.1.")], pch = 19, col = c(rep(adjustcolor(2, 0.5), 1000),rep(adjustcolor(1, 0.5), 3000)))
+# samps <- samps[1001:4000,]
 subset_samps <- function(include = "", exclude = NULL, samps){
   incl_inds <- unique(unlist(lapply(include, function(i) grep(i, colnames(samps)))))
   if(length(exclude) != 0){
@@ -313,10 +750,44 @@ subset_samps <- function(include = "", exclude = NULL, samps){
 }
 prop_greater_than_0 <- function(x) mean(x>0)
 
+
+#### exploring output from simplest 2 timepoint model ####
+
+sapply(1:3, function(fg) length(unique(d[d$group == fg,"prot"]))) #same prots in each group
+all_samps <- lapply(1:3, function(fg_i){
+  timepoints <- c(0,2)
+  base <- paste0("stairway_censored_normal_approx_group-", fg_i, "_timepoints-", paste0(timepoints, collapse = ","))
+  load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
+  samps <- data.frame(as_draws_df(out$draws()))
+  samps
+})
+names(all_samps) <- groups
+
+B_samps <- lapply(all_samps, function(samps){
+  B_raw <- subset_samps("B_raw", samps = samps)
+  B_sd <- subset_samps("B_sd", samps = samps)
+  B_mean <- subset_samps("B_mean", samps = samps)
+  
+  B_raw_foc <- B_raw[,grep("B_raw.2.", colnames(B_raw))]
+  B_nat <- crossprod(diag(B_sd$B_sd.2.1.), as.matrix(B_raw_foc))
+  B <- B_nat + B_mean$B_mean.2.1.
+  B
+})
+
+hist(apply(B_samps$ACR, 2, prop_greater_than_0))
+
+hist(all_samps$Normal$B_mean.2.1.)
+hist(all_samps$ACR$B_mean.2.1.)
+hist(all_samps$CAMBR$B_mean.2.1.)
+
+#### exploring output from spike and slab model ####
+
 B_raw <- subset_samps("B_raw", samps = samps)
 B_sd <- subset_samps("B_sd", samps = samps)
 B_mean <- subset_samps("B_mean", samps = samps)
+# gamma <- subset_samps("gamma", exclude = c("mean", "conc"), samps = samps)
 
+hist(B_sd[,2])
 
 vec2array <- function(samples, sep = "\\."){
   inds <- apply(do.call(rbind, strsplit(names(samples), sep))[,-1], 2, as.numeric)
@@ -336,7 +807,16 @@ vec2array <- function(samples, sep = "\\."){
 B_mean_array <- vec2array(B_mean)
 B_raw_array <- vec2array(B_raw)
 B_sd_array <- vec2array(B_sd)
-
+# gamma_array <- vec2array(gamma)
+# hist(gamma_array[1,,]) #uniform, as expected?
+# hist(apply(gamma_array[1,,], 1, mean))
+# curve(dbeta(x = x, 
+#             shape1 = mean(samps$gamma_conc.1. * samps$gamma_mean.1.), 
+#             shape2 = mean(samps$gamma_conc.1. * (1-samps$gamma_mean.1.))), 
+#       0, 1)
+# 
+# hist(gamma_array[2,,]) 
+# hist(gamma_array[3,,]) 
 
 B_relative_array <- B_raw_array
 B_array <- B_raw_array
@@ -359,6 +839,9 @@ for(t in 1:dims[1]){
     }
   }
 }
+
+
+#### exploring output from original model ####
 
 groups
 group_cols <- c("black", "blue", "green")

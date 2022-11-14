@@ -32,9 +32,9 @@ panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
 }
 
 #simulate data
-n = 5
-p = 1E2
-b_var <- 0.11
+n = 15
+p = 5E3
+b_var <- 0.5
 b <- rnorm(p, 0, sqrt(b_var))
 a <- rnorm(p)
 
@@ -196,3 +196,28 @@ for(i in 2:p){
   lines(quantile(b_samp_2[,i], probs), quantile(b_samp[,i], probs), type = "l")
 }
 abline(0,1, col = 2, lty = 2)
+
+#check if tail calibration is good?
+prop_greater_than_0 <- function(x) mean(x > 0)
+pg0 <- apply(b_samp_2, 2, prop_greater_than_0)
+alpha <- 0.05
+hits <- which(pg0 < alpha | pg0 > (1-alpha))
+
+CI_range <- 0:100/100
+par(mfrow = c(2,2))
+
+#everything
+q.b <- sapply(1:p, function(i) mean(b_samp_2[,i] > b[i]))
+hist(q.b, xlim = c(0,1), breaks = 0:20/20, freq = F, xlab = "quantile of true value in marginal posterior", main = "b_S")
+CI_coverage.b <- sapply(CI_range, function(CIr) sum((sapply(q.b, function(qi) sum((qi * (1-1E-6) + 0.5 * 1E-6) > c(0.5 - CIr / 2, 0.5 + CIr / 2))) == 1)) / length(q.b))
+plot(CI_range, CI_coverage.b, type = "l", xlab = "breadth of middle credibility interval", ylab = "coverage of true parameter value (0)", main = "b_S")
+abline(0,1,lty=2,lwd=2,col=2)
+legend("topleft", col=2,lty=2,lwd=2, legend = "1-to-1 line", bty = "n")
+
+#just the hits
+q.b <- sapply(hits, function(i) mean(b_samp_2[,i] > b[i]))
+hist(q.b, xlim = c(0,1), breaks = 0:20/20, freq = F, xlab = "quantile of true value in marginal posterior", main = "b_S")
+CI_coverage.b <- sapply(CI_range, function(CIr) sum((sapply(q.b, function(qi) sum((qi * (1-1E-6) + 0.5 * 1E-6) > c(0.5 - CIr / 2, 0.5 + CIr / 2))) == 1)) / length(q.b))
+plot(CI_range, CI_coverage.b, type = "l", xlab = "breadth of middle credibility interval", ylab = "coverage of true parameter value (0)", main = "b_S")
+abline(0,1,lty=2,lwd=2,col=2)
+legend("topleft", col=2,lty=2,lwd=2, legend = "1-to-1 line", bty = "n")

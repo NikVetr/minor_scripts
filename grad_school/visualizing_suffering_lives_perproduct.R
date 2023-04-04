@@ -134,7 +134,8 @@ o_i_colors <- c(rgb(  0,   0,   0, maxColorValue = 255),  # black
 
 
 recolor_image <- T
-d <- read.csv("data/animalsuffering_lives_perproduct.csv")
+order_by_days <- T
+d <- read.csv("~/data/animalsuffering_lives_perproduct.csv")
 
 colnames(d)[1] <- "animal"
 d$total.lives.per.serving <- as.numeric(gsub(",", "", trimws(as.character(d$total.nanolives.per.serving)))) / 1E9
@@ -142,7 +143,13 @@ d$total.suffering.per.serving <- as.numeric(gsub(",", "", trimws(as.character(d$
 d$log.lives <- log10(d$total.lives.per.serving)
 d$log.days <- log10(d$total.suffering.per.serving)
 
-d <- d[order(d$log.days, decreasing = T),]
+if(order_by_days){
+  d <- d[order(d$log.days, decreasing = T),]  
+} else {
+  d <- d[order(d$log.lives, decreasing = T),]
+}
+
+d$food <- d$format.code
 d$food <- trimws(as.character(d$food))
 d$food[grep(pattern = "unbreaded pieces", d$food)]  <- "unbreaded pieces"
 d$food[grepl(pattern = "breaded pieces", d$food) & !grepl(pattern = "unbread", d$food)]  <- "unbreaded pieces"
@@ -150,8 +157,8 @@ d$food <- sub(d$food, pattern = "/", replacement = " / ")
 
 colmatch <- cbind(RColorBrewer::brewer.pal(max(as.numeric(as.factor(d$animal))), "Dark2"), trimws(levels(as.factor(d$animal))))
 colmatch <- cbind(c("#D85128", "#00668E", "#F28A35", "#74a64d", "#676462", "#8C2C0E", "#871f78"), trimws(levels(as.factor(d$animal))))
-colmatch <- cbind(ggthemes::colorblind_pal()(max(as.numeric(as.factor(d$animal)))), trimws(levels(as.factor(d$animal))))
-colmatch <- cbind(o_i_colors, trimws(levels(as.factor(d$animal))))
+# colmatch <- cbind(ggthemes::colorblind_pal()(max(as.numeric(as.factor(d$animal)))), trimws(levels(as.factor(d$animal))))
+# colmatch <- cbind(o_i_colors, trimws(levels(as.factor(d$animal))))
 #"beef"    "chicken" "dairy"   "egg"     "fish"    "pork"    "turkey" 
 
 # colmatch[,1] <- sample(colmatch[,1])
@@ -161,7 +168,7 @@ colmatch <- cbind(o_i_colors, trimws(levels(as.factor(d$animal))))
 
 #recolor the image
 cols <- colmatch[,1][as.numeric(as.factor(d$animal))]
-chkns <- png::readPNG("Downloads/rooster_and_hen_silhouette.png")
+chkns <- png::readPNG("~/Downloads/rooster_and_hen_silhouette.png") #from https://en.wikipedia.org/wiki/File:Rooster_and_hen_silhouette_02.svg
 
 if(recolor_image){
   henColor_orig <- chkns[round(nrow(chkns) / 2), round(ncol(chkns) / 2),1:3] #plot(1,1,col = rgb(henColor_orig[1], henColor_orig[2], henColor_orig[3]), pch = 16, cex = 10)
@@ -184,7 +191,7 @@ chkns_opacities <- chkns[,,4]
 chkns_opacities[chkns_opacities == 1] <- chkns_opacity
 chkns[,,4] <- chkns_opacities
   
-png("Desktop/animal_suffering.png", width = 3840, height = 2060)
+png("~/Pictures/animal_suffering_update.png", width = 3840, height = 2060)
 layout(mat = rbind(t(as.matrix(c(1,2,2))),
                    t(as.matrix(c(2,2,2)))))
 layout(mat = rbind(t(as.matrix(c(1,1,1,2,2,2,2,2,2,2))),
@@ -196,7 +203,7 @@ par(mar = c(0,8,6,0))
 par(xpd=TRUE)
 
 plot(d$log.days, d$log.lives, col = makeTransparent(cols, alpha = 0.75), pch = 16, cex = 5.5, xaxt = "n", yaxt = "n", bty = "n", 
-     xlab = "", ylab = "", xlim = c(-4,1), ylim = c(-7,0))
+     xlab = "", ylab = "", xlim = c(-4,1), ylim = c(-7,0), xpd = NA)
 
 axis(2, at = -7:0, labels = rep("", 8), line = -2, lwd = 3, lwd.ticks = 3, tck = -0.01, cex.axis = 2)
 mtext(side = 2, at = -7:0, text = c(sapply(-7:-1, function(i) as.expression(bquote(10^ .(i)))), 1), cex = 2.5)
@@ -213,6 +220,69 @@ par(xpd=TRUE)
 
 plot(c(-12, 2.5), c(0,nrow(d)), xaxt = "n", yaxt = "n",type = "n", xlab = "", ylab = "", bty = "n")
 
+#axes
+axis(side = 1, at = -12:3, labels = rep("", 16), line = -7, lwd = 5, lwd.ticks = c(rep(5, 7), 0, rep(5, 8)), tck = -0.01, cex.axis = 3)
+axis(side = 1, at = log10(c(1E-4, c(sapply(2:-4, function(mag) c(10^mag*1:10)[-1])))), 
+     labels = rep("", length(log10(c(1E-4, c(sapply(-4:2, function(mag) c(10^mag*1:10)[-1])))))), line = -7, lwd = 5, lwd.ticks = 3, tck = -0.005, cex.axis = 1)
+axis(side = 1, at = -10 - log10(c(1E-4, c(sapply(1:-4, function(mag) c(10^mag*1:10)[-1])))), 
+     labels = rep("", length(log10(c(1E-4, c(sapply(-4:1, function(mag) c(10^mag*1:10)[-1])))))), line = -7, lwd = 5, lwd.ticks = 3, tck = -0.005, cex.axis = 1)
+#-11:-6 on left, -4:3 on right
+mtext(side = 1, at = -12:-6, text = c(100, 10, 1, sapply(-1:-4, function(i) as.expression(bquote(10^ .(i))))), cex = 3, line = -2)
+mtext(side = 1, at = -4:3, text = c(sapply(-7:-1, function(i) as.expression(bquote(10^ .(i)))), 1), cex = 3, line = -2)
+mtext(side = 1, at = -5, text = "I", cex = 6.285, col = "white", line = -2)
+
+approxval <- sapply(10^(-(1:4)) * 24 * 60 * 60, function(x){
+  out <- x / exp(cumsum(log(c(60, 60, 24))))
+  lev <- suppressWarnings(max(which(out > 1)))
+  if(lev == -Inf){
+    mag <- log10(x)
+    return(paste0(round(10^(mag-floor(mag)), 1), c("s", "ms", "mus", "ns")[ceiling(mag / 3)]))
+  } else {
+    return(paste0(round(out[lev], 1), c("m", "h", "d")[lev]))
+  }
+})
+text(y = -2.45, x = 1:4-10 + 0.15, labels = paste0("≈ ", approxval), cex = 4, xpd = NA, pos = 4)
+
+
+#add fancy guide lines
+guides <- data.frame(rbind(
+  do.call(rbind, lapply(c(-3:2), function(x){
+  rl <- rle(x < d$log.days)
+  bounds <- cumsum(c(0,rl$lengths))
+  do.call(rbind, lapply(which(rl$values), function(i) c(val = x, loc = -x-10, bounds = bounds[c(i,i+1)])))
+  })),
+  do.call(rbind, lapply(c(-6:1), function(x){
+    rl <- rle(x < d$log.lives)
+    bounds <- cumsum(c(0,rl$lengths))
+    out <- do.call(rbind, lapply(which(rl$values), function(i) c(val = x, loc = x+3, bounds = bounds[c(i,i+1)] + c(0,0))))
+    out[,"bounds1"] <- out[,"bounds1"] + (out[,"bounds1"] != 0)
+    out
+  }))))
+
+segments(x0 = guides$loc, x1 = guides$loc, 
+         y0 = guides$bounds1, y1 = guides$bounds2, 
+         lty = 1, col = adjustcolor(1, 0.5), lwd = 8)
+
+guides2 <- data.frame(rbind(
+  do.call(rbind, lapply(log10(sapply(-4:2, function(mag) c(10^mag*1:10)[-1])), function(x){
+    rl <- rle(x < d$log.days)
+    bounds <- cumsum(c(0,rl$lengths))
+    do.call(rbind, lapply(which(rl$values), function(i) c(val = x, loc = -x-10, bounds = bounds[c(i,i+1)])))
+  })),
+  do.call(rbind, lapply(log10(sapply(-7:1, function(mag) c(10^mag*1:10)[-1])), function(x){
+    rl <- rle(x < d$log.lives)
+    bounds <- cumsum(c(0,rl$lengths))
+    out <- do.call(rbind, lapply(which(rl$values), function(i) c(val = x, loc = x+3, bounds = bounds[c(i,i+1)] + c(0,0))))
+    out[,"bounds1"] <- out[,"bounds1"] + (out[,"bounds1"] != 0)
+    out
+  }))))
+
+
+segments(x0 = guides2$loc, x1 = guides2$loc, 
+         y0 = guides2$bounds1, y1 = guides2$bounds2, 
+         lty = 1, col = adjustcolor(1, 0.5), lwd = 1.5)
+
+
 lstart <- -6
 rstart <- -4
 for(i in 1:nrow(d)){
@@ -227,25 +297,18 @@ for(i in 1:nrow(d)){
 }
 boxtext(x = -5, y = 1:nrow(d), labels = d$food, col = cols, cex = 4.5, col.bg = "white")
 legend(x = "topright", legend = colmatch[,2], col = colmatch[,1], pch = 16, cex = 4.5, box.lty = 2, box.lwd = 3, pt.cex = 7, ncol = 4)
-axis(side = 1, at = -12:3, labels = rep("", 16), line = -7, lwd = 5, lwd.ticks = c(rep(5, 7), 0, rep(5, 8)), tck = -0.01, cex.axis = 3)
-axis(side = 1, at = log10(c(1E-4, c(sapply(2:-4, function(mag) c(10^mag*1:10)[-1])))), 
-     labels = rep("", length(log10(c(1E-4, c(sapply(-4:2, function(mag) c(10^mag*1:10)[-1])))))), line = -7, lwd = 5, lwd.ticks = 3, tck = -0.005, cex.axis = 1)
-axis(side = 1, at = -10 - log10(c(1E-4, c(sapply(1:-4, function(mag) c(10^mag*1:10)[-1])))), 
-     labels = rep("", length(log10(c(1E-4, c(sapply(-4:1, function(mag) c(10^mag*1:10)[-1])))))), line = -7, lwd = 5, lwd.ticks = 3, tck = -0.005, cex.axis = 1)
-#-11:-6 on left, -4:3 on right
-mtext(side = 1, at = -12:-6, text = c(100, 10, 1, sapply(-1:-4, function(i) as.expression(bquote(10^ .(i))))), cex = 3, line = -2)
-mtext(side = 1, at = -4:3, text = c(sapply(-7:-1, function(i) as.expression(bquote(10^ .(i)))), 1), cex = 3, line = -2)
-mtext(side = 1, at = -5, text = "I", cex = 6.285, col = "white", line = -2)
+
+#title
 text(x = lstart - 0.35, y = nrow(d) + 3.75, labels = "DAYS", cex = 8, font = 2, col = "darkred")
 text(x = lstart + 0.45, y = nrow(d) + 4.15, labels = "(of suffering)", cex = 4, font = 2, col = "darkred")
 text(x = rstart + 0.35, y = nrow(d) + 3.75, labels = "LIVES", cex = 8, font = 2, col = "darkred")
 text(x = lstart - 0.45, y = nrow(d) + 1.45, labels = "per serving", cex = 5.5, font = 1, col = "black")
 text(x = rstart + 0.425, y = nrow(d) + 1.45, labels = "per serving", cex = 5.5, font = 1, col = "black")
-text(x = 0.4, y = 82.5, labels = "data source:", cex = 3.5, font = 1, col = "black")
-text(x = 1.9, y = 82.375, labels = "faunalytics.org/animal-product-impact-scales/", cex = 3.5, font = 1, col = "blue")
+text(x = 0.4, y = 81.5, labels = "data source:", cex = 3.5, font = 1, col = "black")
+text(x = 1.9, y = 81.375, labels = "faunalytics.org/animal-product-impact-scales/", cex = 3.5, font = 1, col = "blue")
 
 #add picture of chickens
-addImg(chkns, x = -11.55, y = 5.5, width = 1.25)
+addImg(chkns, x = -11.75, y = 5.5, width = 1.25)
 # axis(side = 1, labels = c(2*2^(-(0:3)), sapply(-(3:9), function(i) as.expression(bquote(2^ .(i))))), at = log10(2*2^(-(0:10))), las = 2)
 
 dev.off()

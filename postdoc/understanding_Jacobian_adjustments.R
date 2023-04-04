@@ -138,7 +138,6 @@ transformed parameters {
 model {
     a ~ lognormal(0, 1);
     c ~ lognormal(0, sqrt(2));
-    target += log(fabs(b));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){

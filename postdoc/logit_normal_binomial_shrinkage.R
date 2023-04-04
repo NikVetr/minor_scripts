@@ -39,7 +39,7 @@ transformed parameters {
 model {
     raw_logodds ~ std_normal();
     logodds_sd ~ normal(0,2);
-    count ~ binomial_logit(total, logodds);
+    counts ~ binomial_logit(total, logodds);
 }
 generated quantities {
     vector<lower=0, upper=1>[n] probs = inv_logit(logodds);

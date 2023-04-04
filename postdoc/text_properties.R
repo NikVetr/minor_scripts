@@ -1,11 +1,35 @@
+#functions
+text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, ...){
+  adj_x <- x + ifelse(any(pos %in% c(2,4)), ifelse(any(pos == 2), -1, 1) * strwidth(labels, cex = cex) / 2, 0)
+  adj_y <- y + ifelse(any(pos %in% c(1,3)), ifelse(any(pos == 1), -1, 1) * strheight(labels, cex = cex) / 2, 0)
+  text(x = adj_x, y = adj_y, labels = labels, pos = NULL, cex = cex, ...)
+  if(drect){
+    rect(xleft = adj_x - strwidth(labels, cex = cex) / 2, 
+         xright = adj_x + strwidth(labels, cex = cex) / 2, 
+         ybottom = adj_y - strheight(labels, cex = cex) / 2, 
+         ytop = adj_y + strheight(labels, cex = cex) / 2)
+    # abline(h = adj_y - strheight(labels, cex = cex) / 2, lwd = 0.5)
+  }
+}
 
-plot(NULL, xlim = c(0,5), ylim = c(0,8))
-cex = 10
-xy <- c(2,3)
-# text(x = xy[1] + strwidth(lab, cex = cex) / 2, y = xy[2] + strheight(lab, cex = cex) / 2, labels = lab, cex = cex)
-# rect(xleft = xy[1], xright = xy[1] + strwidth(lab, cex = cex), ybottom = xy[2], ytop = xy[2]+strheight(lab, cex = cex))
+remove_bottom <- function(x, replacement){
+  nobot <- gsub("g|j|p|q|y|,|\\(|\\)|Q", replacement, x)
+  nobot <- gsub("\\_s*\\{[^\\)]+\\}", replacement, nobot) #underscore in brackets
+  nobot <- gsub("_[a-z|0-9|A-Z]{1}", replacement, nobot) #underscore w/ one letter following
+  nobot
+}
 
-text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, col = 1, ...){
+remove_top <- function(x, replacement){
+  notop <- gsub("\\^s*\\{[^\\)]+\\}", replacement, x)
+  notop <- gsub("\\^[a-z|0-9|A-Z]{1}", replacement, notop)
+  notop
+}
+
+remove_tb <- function(x, replacement){
+  remove_top(remove_bottom(x, replacement), replacement)
+}
+
+text3 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, col = 1, replacement = "a", ...){
   
   #convert text label to expression
   word_expression <- latex2exp::TeX(labels)
@@ -13,52 +37,86 @@ text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, col = 1, 
   #find general params
   strw <- strwidth(word_expression, cex = cex)
   strh <- strheight(word_expression, cex = cex)
+  base_strh <- strheight(latex2exp::TeX("G"), cex = cex)
   
   #adjust base location
   adj_x <- x + ifelse(any(pos %in% c(2,4)), ifelse(any(pos == 2), -1, 1) * strw / 2, 0)
   adj_y <- y + ifelse(any(pos %in% c(1,3)), ifelse(any(pos == 1), -1, 1) * strh / 2, 0)
   
   #adjust in case of ledding
-  ebot <- strheight(latex2exp::TeX(gsub("g|j|p|q|y|,|_|\\(|\\)|Q|u", "a", labels)), cex = cex) - strh
-  etop <- strheight(latex2exp::TeX(gsub("\\^", "a", labels)), cex = cex) - strh
-  ebottop <- strheight(latex2exp::TeX(gsub("g|j|p|q|y|,|_|\\(|\\)|Q|u|\\^", "a", labels)), cex = cex) - strh
+  nobot <- remove_bottom(labels, replacement)
+  ebot <- strheight(latex2exp::TeX(nobot), cex = cex) - strh
   
-  #this only works if prefix and suffix are not adjacent, otherwise things get moved
-  adj_ledding <- ifelse(abs(ebottop - (ebot + etop)) > 1E-6, 
-                        (ebot + etop - ebottop) * 2 / 10, 
-                        ebot / 2 - etop / 2)
+  notop <- remove_top(labels, replacement)
+  etop <- strheight(latex2exp::TeX(notop), cex = cex) - strh
+  
+  nobottop <- remove_tb(labels, replacement)
+  ebottop <- strheight(latex2exp::TeX(nobottop), cex = cex) - strh
   
   #ugh this was obnoxious to figure out
-  adj_ledding <- ifelse(abs(ebottop - (ebot + etop)) > 1E-6, 
+  ebt_delta <- ebottop - (ebot + etop)
+  adj_ledding <- ifelse(abs(ebt_delta) > 1E-6, 
                         ebot / 2 - (ebottop - ebot) / 2, 
                         ebot / 2 - etop / 2)
+  adj_ledding <- adj_ledding - ifelse(base_strh > strh, (base_strh - strh) / 2, 0)
   
   #print the text itself
   text(x = adj_x, y = adj_y + adj_ledding, labels = word_expression, pos = NULL, cex = cex, col = col, ...)
-  
+
   #draw a box around it if desired
   if(drect){
     rect(xleft = adj_x - strw / 2, 
          xright = adj_x + strw / 2, 
          ybottom = adj_y - strh / 2 + adj_ledding, 
          ytop = adj_y + strh / 2 + adj_ledding, border = col)
+    abline(h=y - strheight(latex2exp::TeX("GIs"), cex = cex) / 2, lwd = 0.5)
   }
 }
 
-lab <- "Sest"
-text2(x = xy[1], y = xy[2], labels = lab, cex = cex, drect = T, pos = c(4), col = adjustcolor(1, 0.5))
+replacement <- "a"
+plot(NULL, xlim = c(0,5), ylim = c(0,8), main = paste0("replacement = ", replacement))
 
-lab <- "Sest$_1$"
-text2(x = xy[1], y = xy[2], labels = lab, cex = cex, drect = T, pos = c(4), col = adjustcolor("green", 0.5))
+cex = 10
+xy1 <- c(0,0.125*cex)
+xy2 <- c(0,0.5*cex)
+xy3 <- c(0,0.825*cex)
+# text(x = xy[1] + strwidth(lab, cex = cex) / 2, y = xy[2] + strheight(lab, cex = cex) / 2, labels = lab, cex = cex)
+# rect(xleft = xy[1], xright = xy[1] + strwidth(lab, cex = cex), ybottom = xy[2], ytop = xy[2]+strheight(lab, cex = cex))
 
-lab <- "Sest$_1a^2$"
-text2(x = xy[1], y = xy[2], labels = lab, cex = cex, drect = T, pos = c(4), col = adjustcolor("blue", 0.5))
+labs <- c("Testing", "$Testing_1$", "Testing$_1a^2$", "Testing$^2$", "Testing$_1^2$", ".")
+# labs <- c("a", "$a^2$", "$a_1$", "$a_1^2$", "$a^2a_1$")
+# labs <- c("a", "$a^.$", "$a_1$", "$a_1^.$", "$a^.a_1$")
+# labs <- c("$_2$", "$^2$", "$_2^2")
+cols <- adjustcolor(c("red", "green", "blue", "black", "orange", "lightgrey"), 0.5)
 
-lab <- "Sest$^2$"
-text2(x = xy[1], y = xy[2], labels = lab, cex = cex, drect = T, pos = c(4), col = adjustcolor("red", 0.5))
+for(i in 1:length(labs)){
+  text3(x = xy1[1], y = xy1[2], labels = labs[i], cex = cex, drect = T, pos = c(4), col = cols[i], replacement = replacement)
+  text3(x = 3, y = 0.5+0.075*cex*i, labels = labs[i], cex = cex/5, drect = F, pos = c(4), col = cols[i], replacement = replacement)
+  # text2(x = xy2[1], y = xy2[2], labels = latex2exp::TeX(labs[i]), cex = cex, drect = T, pos = c(4), col = cols[i])
+  # text(x = xy3[1], y = xy3[2], labels = latex2exp::TeX(labs[i]), cex = cex, pos = c(4), col = cols[i])
+}
 
-lab <- "Sest$_1^2$"
-text2(x = xy[1], y = xy[2], labels = lab, cex = cex, drect = T, pos = c(4), col = adjustcolor("orange", 0.5))
-# 
+points(xy1[1], xy1[2])
 
-points(xy[1], xy[2])
+
+
+all_letters <- F
+if(all_letters){
+  cex = 1.5
+  xy4s <- list(c(0,8), c(0,7), c(0,6))
+  labs <- strsplit("\"!#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~", "")[[1]]
+  labs <- c(labs, 
+            paste0("$", c(LETTERS, letters), "^{2}$"), 
+            paste0("$", c(LETTERS, letters), "_{2}$"), 
+            paste0("$", c(LETTERS, letters), "^{2}_{1}$"))
+  plotwidth <- diff(par("usr")[1:2]) / 1.25
+  xy4adjx <- cumsum(c(0, strwidth(sapply(labs, latex2exp::TeX), cex = cex))) %% plotwidth
+  xy4adjy <- floor(cumsum(c(0, strwidth(sapply(labs, latex2exp::TeX), cex = cex))) / plotwidth) / 2
+  
+  cols <- rep(1, length(labs))
+  
+  for(i in 1:length(labs)){
+    text3(x = xy4[1] + xy4adjx[i], y = xy4[2] - xy4adjy[i], labels = labs[i], cex = cex, drect = T, pos = c(4), col = cols[i], replacement = replacement)
+  }
+  
+}

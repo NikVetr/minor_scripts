@@ -27,31 +27,52 @@ summary(x)
 hist(x$intensity)
 mean(x$intensity == 0, na.rm = T)
 
+#combine extracts
+xsub <- x[,c("proteinNames", "gene", "intensity", "Patient", "Group", "TimePoint", "Extract", "experiment")]
+xsplit <- split(xsub, interaction(x$proteinNames, x$Patient, x$TimePoint, x$Group))
+nxsplit <- sapply(xsplit, nrow)
+table(nxsplit)
+repeat_experiments <- as.integer(which(nxsplit == 3))
+xsplit[[repeat_experiments[1]]]
+
+xcomb <- parallel::mclapply(xsplit, function(xs){
+  if(nrow(xs) == 0){
+    return(integer(0))
+  } else if(nrow(xs) == 3){
+    nxs <- xs[!(xs$experiment %in% gsub("r", "", xs$experiment[grepl("r", xs$experiment)])),]
+  } else{
+    nxs <- xs
+  }
+  return(cbind(nxs[1,c("proteinNames", "gene", "Patient", "Group", "TimePoint")], intensity = sum(nxs$intensity)))
+}, mc.cores = 12)
+xcomb <- do.call(rbind, xcomb)
+x <- xcomb
+
+
 
 ### test out this VGAM package ####
-# library(VGAM)
-# 
-# N <- 10
-# sex <- sample(0:1, N, T)
-# cdata <- data.frame(y = rpois(N, exp(1.25 + sex * 0.25)), sex = sex)
-# L <- round(quantile(cdata$y, 0.25))
-# cdata <- transform(cdata,
-#                    cY = pmax(L, y),
-#                    lcensored = y <  L)  # Note y < L, not cY == L or y <= L
-# cdata <- transform(cdata, status = ifelse(lcensored, 0, 1))
-# with(cdata, table(cY))
-# with(cdata, table(lcensored))
-# with(cdata, table(print(SurvS4(cY, status, type = "left"))))  # Check
-# cdata <- cbind(cdata)
-# fit <- vglm(SurvS4(cY, status, type = "left") ~ 1 + sex, cens.poisson,
-#             data = cdata, trace = TRUE)
-# coef(fit, matrix = TRUE)
-# fit@misc$p
-# fits <- summary(fit)
-# fits
-# fits@coef3[,4]
-# (1 - pnorm(fits@coef3[,3] * sign(fits@coef3[,3]))) * 2
+library(VGAM)
 
+N <- 10
+sex <- sample(0:1, N, T)
+cdata <- data.frame(y = rpois(N, exp(1.25 + sex * 0.25)), sex = sex)
+L <- round(quantile(cdata$y, 0.25))
+cdata <- transform(cdata,
+                   cY = pmax(L, y),
+                   lcensored = y <  L)  # Note y < L, not cY == L or y <= L
+cdata <- transform(cdata, status = ifelse(lcensored, 0, 1))
+with(cdata, table(cY))
+with(cdata, table(lcensored))
+with(cdata, table(print(SurvS4(cY, status, type = "left"))))  # Check
+cdata <- cbind(cdata)
+fit <- vglm(SurvS4(cY, status, type = "left") ~ 1 + sex, cens.poisson,
+            data = cdata, trace = TRUE)
+coef(fit, matrix = TRUE)
+fit@misc$p
+fits <- summary(fit)
+fits
+fits@coef3[,4]
+(1 - pnorm(fits@coef3[,3] * sign(fits@coef3[,3]))) * 2
 
 #### munge into desired data frame ####
 L <- 44780
@@ -81,97 +102,102 @@ d$extract <- match(x$Extract, extracts)
 # d$group3 <- as.integer(d$group == 3)
 
 #### apply VGAM to renal transplant data ####
-# results <- lapply(1:length(groups), function(group){
-#   prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
-#     if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
-#     dsub <- d[d$prot == prot & d$group == group,]
-#     fit <- try(vglm(SurvS4(count, cens, type = "left") ~ 1 + time1 + time2 + time3, cens.poisson,
-#                     data = dsub, trace = F, link = "loglink", maxit = 50), silent = T)
-#     if(class(fit) == "try-error") return(NA)
-#     fits <- summary(fit)
-#     pvals <- (1 - pnorm(fits@coef3[,3] * sign(fits@coef3[,3]))) * 2
-#   }, mc.cores = 8))
-# })
-# hist(do.call(rbind, results))
+try_freq_tests <- T
+if(try_freq_tests){
+  results_1 <- lapply(1:length(groups), function(group){
+    prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
+      if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
+      dsub <- d[d$prot == prot & d$group == group,]
+      fit <- try(vglm(SurvS4(count, cens, type = "left") ~ 1 + time1 + time2 + time3, cens.poisson,
+                      data = dsub, trace = F, link = "loglink", maxit = 50), silent = T)
+      if(class(fit) == "try-error") return(NA)
+      fits <- summary(fit)
+      pvals <- (1 - pnorm(fits@coef3[,3] * sign(fits@coef3[,3]))) * 2
+    }, mc.cores = 8))
+  })
+  ps_1 <- do.call(rbind, results_1)
+  hist(ps_1)
+  min(p.adjust(ps_1, method = "BH"), na.rm = T)
+  
+  d$log_count <- log(d$count)
+  results_2 <- lapply(1:length(groups), function(group){
+    prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
+      if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
+      dsub <- d[d$prot == prot & d$group == group,]
+      # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
+      fit <- try(censReg::censReg(log_count ~ 1 + time1 + time2 + time3, left = log(L), right = Inf, data = dsub), silent = T)
+      if(class(fit) == "try-error") return(NA)
+      fits <- summary(fit)
+      # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
+      pvals <- coef(fits)[,4]
+    }, mc.cores = 8))
+  })
+  hist(do.call(rbind, results_2)[,2:4], breaks = 1000)
+  ps_2 <- do.call(rbind, results_2)[,2:4]
+  min(p.adjust(ps_2, method = "BH"), na.rm = T)
+  
+  results_3 <- lapply(1:length(groups), function(group){
+    prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
+      if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
+      time_out <- sapply(1:3, function(time_i){
+        dsub <- d[d$prot == prot & d$group == group & (d$time == time_i | d$time == 0),]
+        # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
+        fit <- try(censReg::censReg(log_count ~ 1 + time1, left = log(L), right = Inf, data = dsub), silent = T)
+        if(length(class(fit)) == 1 && class(fit) == "try-error") return(NA)
+        fits <- summary(fit)
+        # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
+        pvals <- coef(fits)[2,4]
+      })
+    }, mc.cores = 8))
+  })
+  hist(do.call(rbind, results_3), breaks = 1000, xlab = "p.values", main = "")
+  ps_3 <- do.call(rbind, results_3)
+  hist(unlist(ps_3[,3]))
+  min(p.adjust(ps_3, method = "BH"), na.rm = T)
+  min(p.adjust(unlist(ps_3[,1]), method = "BH"), na.rm = T)
+  
+  results_4 <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
+    if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
+    dsub <- d[d$prot == prot,]
+    # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
+    fit <- try(censReg::censReg(log_count ~ 1 + group2 + group3 + time1 + time2 + time3 + time1*group2 + time2*group2 + time3*group2 + time1*group3 + time2*group3 + time3*group3 ,
+                                left = log(L), right = Inf, data = dsub), silent = T)
+    if(length(class(fit)) == 1 && class(fit) == "try-error") return(NA)
+    fits <- summary(fit)
+    # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
+    pvals <- coef(fits)[grep(":", rownames(coef(fits))),4]
+  }, mc.cores = 8))
+  
+  hist(results_4, breaks = 1000, xlab = "p.values", main = "")
+  ps_4 <- results_4
+  hist(ps_4[,3])
+  min(p.adjust(ps_4, method = "BH"), na.rm = T)
+  min(p.adjust(ps_4[,2], method = "BH"), na.rm = T)
+}
 
-
-
-d$log_count <- log(d$count)
-# results <- lapply(1:length(groups), function(group){
-#   prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
-#     if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
-#     dsub <- d[d$prot == prot & d$group == group,]
-#     # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
-#     fit <- try(censReg::censReg(log_count ~ 1 + time1 + time2 + time3, left = log(L), right = Inf, data = dsub), silent = T)
-#     if(class(fit) == "try-error") return(NA)
-#     fits <- summary(fit)
-#     # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
-#     pvals <- coef(fits)[,4]
-#   }, mc.cores = 8))
-# })
-# hist(do.call(rbind, results)[,2:4], breaks = 1000)
-# ps <- do.call(rbind, results)[,2:4]
-# min(p.adjust(ps, method = "BH"), na.rm = T)
-
-
-# results <- lapply(1:length(groups), function(group){
-#   prot_out <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
-#     if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
-#     time_out <- sapply(1:3, function(time_i){
-#       dsub <- d[d$prot == prot & d$group == group & (d$time == time_i | d$time == 0),]
-#       # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
-#       fit <- try(censReg::censReg(log_count ~ 1 + time1, left = log(L), right = Inf, data = dsub), silent = T)
-#       if(length(class(fit)) == 1 && class(fit) == "try-error") return(NA)
-#       fits <- summary(fit)
-#       # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
-#       pvals <- coef(fits)[2,4]
-#     })
-#   }, mc.cores = 8))
-# })
-# hist(do.call(rbind, results), breaks = 1000, xlab = "p.values", main = "")
-# ps <- do.call(rbind, results)
-# hist(ps[,3])
-# min(p.adjust(ps, method = "BH"), na.rm = T)
-# min(p.adjust(ps[,2], method = "BH"), na.rm = T)
-# 
-# 
-# results <- do.call(rbind, parallel::mclapply(1:length(prots), function(prot){
-#   if(prot %% 100 == 0){system(sprintf('echo "%s "', paste0(prot, collapse="")))}
-#   dsub <- d[d$prot == prot,]
-#   # fit <- vglm(log_count ~ 1 + time1 + time2 + time3, tobit(Lower = log(L)), data = dsub)
-#   fit <- try(censReg::censReg(log_count ~ 1 + group2 + group3 + time1 + time2 + time3 + time1*group2 + time2*group2 + time3*group2 + time1*group3 + time2*group3 + time3*group3 , 
-#                               left = log(L), right = Inf, data = dsub), silent = T)
-#   if(length(class(fit)) == 1 && class(fit) == "try-error") return(NA)
-#   fits <- summary(fit)
-#   # pvals <- (1 - pnorm(@coef3[,3] * sign(fits@coef3[,3]))) * 2
-#   pvals <- coef(fits)[grep(":", rownames(coef(fits))),4]
-# }, mc.cores = 8))
-# 
-# hist(results, breaks = 1000, xlab = "p.values", main = "")
-# ps <- do.call(rbind, results)
-# hist(ps[,3])
-# min(p.adjust(ps, method = "BH"), na.rm = T)
-# min(p.adjust(ps[,2], method = "BH"), na.rm = T)
-# 
 # #### try to invert the problem -- elastic net to predict rejection? ####
-# library(caret)
-# library(glmnet)
-# 
-# #convert from long to wide
-# d$group_name <- as.factor(groups[d$group])
-# d$group_name <- as.factor(groups[d$group])
-# d$prot_name <- as.factor(prots[d$prot])
-# d$prot_id <- as.factor(d$prot)
-# d$group_patient <- as.factor(paste0(x$Group, ".", x$Patient))
-# dsub <- d[d$time==0,c("prot_id", "group_name", "count", "group_patient")]
-# dw <- reshape(dsub, timevar = "prot_id", idvar = "group_patient", direction= "wide", v.names = "count")
-# dw <- dw[,-match("group_patient", colnames(dw))]
-# y <- dw$group_name
-# x <- as.matrix(dw[,-1])
-# 
-# traincv <- train(group_name ~ ., data = dsub, method = "multinom", trControl = trainControl(method = "cv", number = 5), trace = T)
-# fit <- glmnet(x = x, dw$group_name, family = "multinomial", type.multinomial = "ungrouped",nfolds =3)
-# coef(traincv)
+try_inversion <- F
+if(try_inversion){
+  library(caret)
+  library(glmnet)
+  
+  #convert from long to wide
+  d$group_name <- as.factor(groups[d$group])
+  d$group_name <- as.factor(groups[d$group])
+  d$prot_name <- as.factor(prots[d$prot])
+  d$prot_id <- as.factor(d$prot)
+  d$group_patient <- as.factor(paste0(x$Group, ".", x$Patient))
+  dsub <- d[d$time==0,c("prot_id", "group_name", "count", "group_patient")]
+  dw <- reshape(dsub, timevar = "prot_id", idvar = "group_patient", direction= "wide", v.names = "count")
+  dw <- dw[,-match("group_patient", colnames(dw))]
+  y <- dw$group_name
+  x <- as.matrix(dw[,-1])
+  
+  traincv <- train(group_name ~ ., data = dsub, method = "multinom", trControl = trainControl(method = "cv", number = 5), trace = T)
+  fit <- glmnet(x = x, dw$group_name, family = "multinomial", type.multinomial = "ungrouped",nfolds =3)
+  coef(traincv)
+  coef(fit)
+}
 
 #do basic EDA to find var within prot & timepoint between subj vs between prot within subj & timepoint
 
@@ -190,38 +216,41 @@ extract_indices <- setNames(sort(unique(d$extract)), extracts)
 
 #sample sds
 ei <- extract_indices[1]
+
+#within proteins
 sapply(group_indices, function(gi){
   sapply(time_indices, function(ti){
     mean(sapply(protein_indices, function(pi){
-      ds <- d$log_count[d$time == ti & d$prot == pi & d$group == gi & d$extract == ei]
+      ds <- d$log_count[d$time == ti & d$prot == pi & d$group == gi & (is.null(d$extract) || d$extract == ei)]
       sd(ds)
     }), na.rm = T)
   })
 })
 
+#within patients
 sapply(group_indices, function(gi){
   sapply(time_indices, function(ti){
     mean(sapply(patient_indices, function(pi){
-      ds <- d$log_count[d$time == ti & d$patient == pi & d$group == gi & d$extract == ei]
+      ds <- d$log_count[d$time == ti & d$patient == pi & d$group == gi & (is.null(d$extract) || d$extract == ei)]
       var(ds)
     }), na.rm = T)
   })
 })
 
+#within just timepoint and group
 sapply(group_indices, function(gi){
   sapply(time_indices, function(ti){
-    ds <- d$log_count[d$time == ti & d$group == gi & d$extract == ei]
+    ds <- d$log_count[d$time == ti & d$group == gi & (is.null(d$extract) || d$extract == ei)]
     sd(ds)
   })
 })
-
 
 #sample sds vs t0
 sapply(group_indices, function(gi){
   sapply(time_indices[-1], function(ti){
     mean(sapply(protein_indices, function(pi){
-      d0 <- d[d$time == 0 & d$prot == pi & d$group == gi & d$extract == ei,]
-      ds <- d[d$time == ti & d$prot == pi & d$group == gi & d$extract == ei,]
+      d0 <- d[d$time == 0 & d$prot == pi & d$group == gi & (is.null(d$extract) || d$extract == ei),]
+      ds <- d[d$time == ti & d$prot == pi & d$group == gi & (is.null(d$extract) || d$extract == ei),]
       sd(ds$log_count - d0$log_count)
     }), na.rm = T)
   })
@@ -230,8 +259,8 @@ sapply(group_indices, function(gi){
 sapply(group_indices, function(gi){
   sapply(time_indices[-1], function(ti){
     mean(sapply(patient_indices, function(pi){
-      d0 <- d[d$time == 0 & d$patient == pi & d$group == gi & d$extract == ei,]
-      ds <- d[d$time == ti & d$patient == pi & d$group == gi & d$extract == ei,]
+      d0 <- d[d$time == 0 & d$patient == pi & d$group == gi & (is.null(d$extract) || d$extract == ei),]
+      ds <- d[d$time == ti & d$patient == pi & d$group == gi & (is.null(d$extract) || d$extract == ei),]
       d0 <- d0[match(ds$prot, d0$prot),]
       var(ds$log_count - d0$log_count)
     }), na.rm = T)
@@ -240,8 +269,8 @@ sapply(group_indices, function(gi){
 
 sapply(group_indices, function(gi){
   sapply(time_indices[-1], function(ti){
-      d0 <- d[d$time == 0 & d$group == gi & d$extract == ei,]
-      ds <- d[d$time == ti & d$group == gi & d$extract == ei,]
+      d0 <- d[d$time == 0 & d$group == gi & (is.null(d$extract) || d$extract == ei),]
+      ds <- d[d$time == ti & d$group == gi & (is.null(d$extract) || d$extract == ei),]
       sd(ds$log_count - d0$log_count)
   })
 })
@@ -339,7 +368,7 @@ transformed parameters {
       int t = time[i];  int g = group[i];  int p = prot[i];
       for(j in 1:t){
         if(group[i] == 1){
-          B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+          B_temp += B_mean[t, g] + B_raw[t, g, p] * B_sd[t, g];
         } else {
           B_temp += B_mean[j, 1] + B_mean[j, g] + 
                    B_raw[j, 1, p] * B_sd[j, 1] +
@@ -434,7 +463,7 @@ transformed parameters {
       int t = time[i];  int g = group[i];  int p = prot[i];
       for(j in 1:t){
         if(group[i] == 1){
-          B_temp_1 += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+          B_temp_1 += B_mean[t, g] + B_raw[t, g, p] * B_sd[t, g];
         } else {
           B_temp_1 += B_mean[j, 1] + B_mean[j, g] + 
                    B_raw[j, 1, p] * B_sd[j, 1] +
@@ -585,7 +614,7 @@ model {
       real B_temp_1 = 0;
       int t = time[i];  int g = group[i];  int p = prot[i];
       for(j in 1:t){
-        B_temp_1 += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+        B_temp_1 += B_mean[t, g] + B_raw[t, g, p] * B_sd[t, g];
       }
       B_1[i] = B_temp_1;
     }
@@ -698,7 +727,7 @@ model {
       real B_temp = 0;
       int t = time[i];  int g = group[i];  int p = prot[i];
       for(j in 1:t){
-        B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+        B_temp += B_mean[t, g] + B_raw[t, g, p] * B_sd[t, g];
       }
       B[i] = B_temp;
     }
@@ -707,7 +736,7 @@ model {
     uncens_log_count ~ normal(B[uncens_idx], sigma[time[uncens_idx]]);
     
     //censored obs
-    target += normal_lcdf(log_censor_threshold | B[cens_idx], sigma[time[uncens_idx]]);
+    target += normal_lcdf(log_censor_threshold | B[cens_idx], sigma[time[cens_idx]]);
     
 }
 '
@@ -775,6 +804,8 @@ B_samps <- lapply(all_samps, function(samps){
 })
 
 hist(apply(B_samps$ACR, 2, prop_greater_than_0))
+hist(apply(B_samps$Normal, 2, prop_greater_than_0))
+hist(apply(B_samps$CAMBR, 2, prop_greater_than_0))
 
 hist(all_samps$Normal$B_mean.2.1.)
 hist(all_samps$ACR$B_mean.2.1.)
@@ -982,7 +1013,7 @@ transformed parameters {
       B_temp += B_pat_mean[pat] + B_pat_raw[pat, p] * B_pat_sd[pat];
       for(j in 1:t){
         if(group[i] == 1){
-          B_temp += B_mean[j, g] + B_raw[j, g, p] * B_sd[j, g];
+          B_temp += B_mean[t, g] + B_raw[t, g, p] * B_sd[t, g];
         } else {
           B_temp += B_mean[j, 1] + B_mean[j, g] + 
                    B_raw[j, 1, p] * B_sd[j, 1] +
@@ -1039,3 +1070,50 @@ if(fit_model){
 } else {
   load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
 }
+
+
+
+
+#### starting over with the model, building to a spike and slab with within-patient effects, combined extracts ####
+dsub <- d[d$group == 3 & d$time %in% c(0,2),]
+
+#populate missing obs as censored? or remove patients without both timepoints?
+missing_data_patients <- as.integer(do.call(rbind, strsplit(names(which(sapply(
+  split(dsub$count, interaction(dsub$patient, dsub$time)), length) == 0)), "\\."))[,1])
+dsub <- dsub[!(dsub$patient %in% missing_data_patients),]
+
+dat <- list(n = nrow(dsub),
+            n_prot = length(unique(dsub$prot)),
+            n_group = length(unique(dsub$group)),
+            n_time = length(unique(dsub$time)),
+            n_pat = length(unique(dsub$patient)),
+            censor_threshold = L,
+            log_count = log(dsub$count),
+            uncens = dsub$cens,
+            group = rep(1, nrow(dsub)),
+            time = match(dsub$time, sort(unique(dsub$time))),
+            prot = dsub$prot,
+            pat = match(dsub$patient, sort(unique(dsub$patient)))
+)
+
+
+base <- paste0("stairway_do-over_", focal_group, "_timepoints-", paste0(timepoints, collapse = ","))
+stan_model <- "~/scripts/minor_scripts/postdoc/renal_transplant/simple_stairstep_difference_model.stan"
+mod <- cmdstan_model(stan_model)
+
+#fit model
+write_stan_json(dat, paste0("~/Desktop/", paste0(base, ".json")))
+fit_model <- T
+if(fit_model){
+  out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = dat, parallel_chains = 4, 
+                    adapt_delta = 0.95, refresh = 10, init = 0.1, max_treedepth = 15, thin = 2)
+  summ <- out$summary()
+  save(out, file = paste0("~/Desktop/", paste0(base, ".cmdStanR.fit")))
+  save(summ, file = paste0("~/Desktop/", paste0(base, ".cmdStanR.diag")))
+} else {
+  load(paste0("~/Desktop/", paste0(base,".cmdStanR.fit")))
+  load(paste0("~/Desktop/", paste0(base,".cmdStanR.diag")))
+}
+print(summ[order(summ$ess_bulk),])
+print(summ[order(summ$rhat, decreasing = T),])
+

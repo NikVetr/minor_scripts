@@ -7,10 +7,10 @@ seq2 <- function(r, length.out, ...) seq(r[1], r[2], length.out = length.out)
 n <- 2E2 #number of individuals (eg humans) in the sample
 m <- 5E2 #number of analytes / outcomes
 p <- 5E1 #number of variables that systematically structure outcomes
-pervasive_interaction <- F
-batch_heteroskedasticity_ratio <- 1
+pervasive_interaction <- T
+batch_heteroskedasticity_ratio <- 0
 batch_extension_ratio <- 0
-batch_var <- 0
+batch_var <- 10
 train_test_rat <- 0.8 #80/20 train/test split
 b <- matrix(rnorm(m*p), p, m) #true coefficients, effect of variables on each outcome
 x <- matrix(rnorm(n*p), n, p) #values for each variable for each individual
@@ -45,8 +45,10 @@ test_inds <- setdiff(1:n, train_inds)
 
 #get batch residuals
 ye.resids <- do.call(cbind, lapply(1:m, function(i){
-  fit <- lm(ye[,i] ~ x[,1])
-  fit$residuals
+  # fit <- lm(ye[,i] ~ x[,1])
+  fit <- lm(ye[,i] ~ x)
+  ye[,i] - x[,1] * fit$coefficients[2] - fit$coefficients[1]
+  # fit$residuals
 }))
 colnames(ye) <- colnames(y) <- colnames(ye.resids) <- colnames(ye_std) <- paste0("y.", 1:m)
 

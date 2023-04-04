@@ -6,7 +6,8 @@ pythag <- function(x) sqrt(sum(x^2))
 
 #read image and text
 img_name <- c("motrpac_M", "rat_anatomy", "treadmill_rat", "treadmill_rat_horizontal", "rethink_logo", "treadmill_rat_horizontal_straightuptop",
-              "love-song", "treadmill_rat_horizontal_straightuptop_thickerlines")[5]
+              "love-song", "treadmill_rat_horizontal_straightuptop_thickerlines", "openai")
+img_name <- img_name[length(img_name)]
 path_to_image <- paste0("~/Pictures/", img_name, ".png")
 img <- readPNG(source = path_to_image)
 
@@ -23,11 +24,53 @@ if(dim(img)[3] == 3){
 
 img[,,4] <- img[,,4]^(0.5)
 
+# map img to nearest block colors
+img <- round(img, 3)
+cols <- do.call(rbind, lapply(1:nrow(img), function(i) do.call(rbind, lapply(1:ncol(img), function(j) img[i,j,1:4]))))
+# transcols <- cbind(cols[,1:3] * cols[,4], 
+#                    rep(1:nrow(img), each = ncol(img)),
+#                    rep(1:ncol(img), times = nrow(img)))
+transcols <- cols
+transcols[transcols[,4] < 0.1,1:3] <- -1
+ncol_range <- 4:12
+# kmeans_out <- parallel::mclapply(ncol_range, function(k) kmeans(transcols, k, iter.max = 50, nstart = 100), mc.cores = 12)
+# dbi <- sapply(kmeans_out, function(x) clusterSim::index.DB(transcols, x$cluster)$DB)
+kmeans_picked <- which.min(dbi)
+ncol <- ncol_range[kmeans_picked]
+cluster_inds <- kmeans_out[[kmeans_picked]]$cluster
+centers <- round(clusterSim::index.DB(cols, cluster_inds)$centers, 3)
+# centers[,4] <- as.numeric(centers[,4] > 0.95)
+img <- abind::abind(lapply(1:4, function(i) matrix(centers[cluster_inds,i], nrow(img), ncol(img), byrow = T)), along = 3)
+
+#get rid of noisy pixels
+clmat <- matrix(cluster_inds, nrow(img), ncol(img), byrow = T)
+min_vl <- 3
+n_passes <- 1
+for(pass in 1:(2*n_passes)){
+  clmat <- apply(clmat, 1, function(x){
+    rlex <- rle(x)
+    ok <- which(rlex$lengths >= min_vl)
+    diff_inds <- diff(ok)
+    inds_added_to <- which(diff_inds > 1)
+    inds_added_by <- diff_inds[diff_inds > 1] - 1
+    cl_out <- rlex$values[ok]
+    length_out <- rlex$lengths[ok]
+    length_out[inds_added_to] <- sapply(seq_along(inds_added_to), function(i) 
+      sum(rlex$lengths[ok[inds_added_to[i]] + 0:inds_added_by[i]]))
+    rep(cl_out, times = length_out)
+  })
+}
+
+
+cluster_inds <- c(t(clmat))
+img <- abind::abind(lapply(1:4, function(i) matrix(centers[cluster_inds,i], nrow(img), ncol(img), byrow = T)), along = 3)
+
+
 #get text
 # txt <- sample(c(letters, LETTERS, rep(" ", 10)), 1E4, replace = T)
 # txt <-  c(rbind(strsplit(paste0(1:8E2, " ", collapse = ""), " ")[[1]], " "))
 # txt <- readLines("~/Documents/Documents - nikolai/rp_intro.txt", warn = F)
-txt_name <- c("pass1b_landscape", "nicole_thesis", "nicole_thesis_short", "nicole_thesis_extrashort", "love-song", "rp_intro")[6]
+txt_name <- c("pass1b_landscape", "nicole_thesis", "nicole_thesis_short", "nicole_thesis_extrashort", "love-song", "rp_intro", "openai")[7]
 path_to_txt <- paste0("~/Documents/Documents - nikolai/", txt_name, ".txt")
 txt <- readLines(path_to_txt)
 txt <- paste0(txt, collapse = " ")
@@ -97,7 +140,7 @@ get_char_propspace <- function(uc, font, family){
 }
 
 uniqchars <- unique(txt)
-propspace_uniqchar <- sapply(uniqchars, function(uc) get_char_propspace(uc, font = font, family = family))
+# propspace_uniqchar <- sapply(uniqchars, function(uc) get_char_propspace(uc, font = font, family = family))
 
 #### rotate image if desired ###
 rotation_angle <- 0
@@ -163,6 +206,7 @@ hits <- img[,,1] + img[,,2] + img[,,3]
 hits_i <- which((abs(hits - 3) > 1E-9) & img[,,4] > 0.2) 
 hits[hits_i] <- 1
 hits[-hits_i] <- 0
+# plot(which(hits==1, T)[,2], -which(hits==1, T)[,1])
 
 #do easy fill
 # sf <- sqrt(sum(hits) / length(txt))
@@ -287,6 +331,7 @@ for(i in (1:length(rlepixy$values))){
 twoy <- rlepixy$lengths * pxlw #total width on each row 'y'
 indlocs$tw <- rep(twoy, rlepixy$lengths)
 indlocs$li <- rep(seq_along(twoy), rlepixy$lengths)
+uniq_indlocsy <- unique(indlocs$y)
 
 #get colors for indlocs
 pixcols <- t(sapply(1:nrow(indhits), function(i) img[indhits[i,1], indhits[i,2],]))
@@ -301,8 +346,8 @@ points(indlocs$x, indlocs$y, col = indlocs$col, pch = 15, cex = 1)
 dev.off()
 
 #### start preprocessing drawing ####
-npixels <-c(ncol(hits) * 5, nrow(hits) * 5)
-npixels <- c(12, 12) * 300
+npixels <-c(nrow(hits) * 5, ncol(hits) * 5)
+# npixels <- c(12, 12) * 300
 png(paste0("~/Pictures/", img_name, "_", txt_name, "_textfill_bcol-1.png"), width = npixels[2], height = npixels[1], units = "px")
 par(mar = c(0,0,0,0))
 plot(NA, NA, xlim = c(0,1), ylim = c(0,1), frame.plot = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
@@ -314,14 +359,14 @@ flanking <- F
 wiggle <- F
 max_ind <- length(txt)
 # max_ind <- length(strsplit(paste0(1:84, " ", collapse = ""), "")[[1]])-2
-background_cols <- c("black","white")
+background_cols <- c("black","white")[2]
 render_image <- T
 adjust_ws_kerning <- T
 adjust_colors <- F
 
 #initialize parameters
 paintable_area <- sum(hits) / length(hits)
-charh_multiplier <- 1.2
+charh_multiplier <- 1.21
 txta <- strwidth(paste0(txt, collapse = ""), units = "user", font = font, family = family) * 
   strheight(paste0(txt, collapse = ""), units = "user", font = font, family = family) * charh_multiplier
 cex <- sqrt(paintable_area / txta)
@@ -337,7 +382,7 @@ for(round in 1:n_rounds){
   charheight <- as.numeric(charheights[1])
   txtw <- cumsum(charwidths[txt])
   
-  #figure out charater locations and colors
+  #figure out charater locations
   ind_indlocs <- 1
   # ind_indlocs <- min(which(indlocs$tw > 0.5)) #if you want to start on a more encompassing line
   charlocx <- indlocs$x[ind_indlocs]
@@ -452,7 +497,8 @@ for(round in 1:n_rounds){
             incr_vec <- cumsum(incr_vec)
             
             #not centering characters properly -- find block center and char center and recenter chars in block
-            char_center <- charmat[block_inds[1],1] + (diff(range(charmat[block_inds,1] + incr_vec)) + charwidths[charmat$char[block_inds[length(block_inds)]]]) / 2
+            char_center <- charmat[block_inds[1],1] + (diff(range(charmat[block_inds,1] + incr_vec)) + 
+                                                         charwidths[charmat$char[block_inds[length(block_inds)]]]) / 2
             center_disp <- block_center - char_center
             
             #finally, apply the adjustment
@@ -466,7 +512,14 @@ for(round in 1:n_rounds){
       tswtd <- 0
       curr_block <- 1
       line_i <- line_i + 1
-      charlocy <- charlocy - charheight
+      
+      #problem --  we increment by strheight and then find the closest valid line for info about width
+      #but if there are not pixels there, we still find the closest line! need to skip ahead to the next closest
+      #so need to check if there are indlocs with height between old and new charlocy
+      #and if not, skip it down to the next available indloc
+      next_indlocy_down <- max(uniq_indlocsy[uniq_indlocsy < (indlocs$y[ind_indlocs] - charheight / 100)])
+      prop_charlocy <- charlocy - charheight
+      charlocy <- min(prop_charlocy, next_indlocy_down)
       ind_indlocs <- which.min(abs(charlocy - indlocs$y))
       tw <- indlocs$tw[ind_indlocs]
       tsw <- indlocs$tsw[ind_indlocs]
@@ -492,51 +545,54 @@ for(round in 1:n_rounds){
   prop_through <- closest_ind / nrow(indlocs)
   
   #adjust cex 
-  newcexprop <- 0.95
-  if(T){
-    if(!toolong){
-      newcex <- cex / prop_through^0.5 + cex / 400
-      print(newcex / cex)
-      cex_history[round,] <- c(cex, newcex / cex)
-    } else {
-      newcex <- cex * got_through_prop^0.5 - cex / 400
-      print(newcex / cex)
-      cex_history[round,] <- c(cex, newcex / cex)
-    }
-    flanking <- (!all(cex_history[1:round,2] > 1) & !all(cex_history[1:round,2] < 1)) & round != 1
-    if(!flanking){
-      cex <- newcex * newcexprop + cex * (1-newcexprop)
-    } else {
-      curr_cex_history <- cex_history[1:round,]
-      cvs <- curr_cex_history[,1]
-      rats <- curr_cex_history[,2]
-      closest_below <- which(rats < 1) #too much text
-      closest_below <- cvs[closest_below[which.max(rats[closest_below])]]
-      closest_above <- which(rats > 1) #too little text
-      closest_above <- cvs[closest_above[which.min(rats[closest_above])]]
-      # cex_weights <- (1 / abs(1-cex_history[1:round,2]))^0.5
-      # cex_weights <- cex_weights / sum(cex_weights)
-      # cex <- sum(cex_history[1:round,1] * cex_weights) * 0.9 + propcex * 0.1
-      if(round != n_rounds){
-        cex <- (closest_above * 0.25 + closest_below * 0.75)
-        # cex <- cex * ifelse(abs(rats[round] - rats[round-1]) < 1E-4 & wiggle, exp(rnorm(1, 0, 0.01)), 1)
-      }
-      if(round == (n_rounds-1)){   
-          cex <- curr_cex_history[which.min(abs(curr_cex_history[,2]-1)),1]
-          
-          #get just the ones where all the text is there
-          cvs <- curr_cex_history[,1]
-          rats <- curr_cex_history[,2]
-          closest_above <- which(rats > 1)
-          cex <- cvs[closest_above[which.min(rats[closest_above])]]
-      }
+  newcexprop <- 0.5
+  if(!toolong){
+    newcex <- cex / prop_through^0.5 + cex / 400
+    print(newcex / cex)
+    cex_history[round,] <- c(cex, newcex / cex)
+  } else {
+    newcex <- cex * got_through_prop^0.5 - cex / 400
+    print(newcex / cex)
+    cex_history[round,] <- c(cex, newcex / cex)
+  }
+  
+  flanking <- (!all(cex_history[1:round,2] > 1) & !all(cex_history[1:round,2] < 1)) & round != 1
+  
+  if(!flanking) {
+    cex <- newcex * newcexprop + cex * (1-newcexprop)
+  } else {
+    curr_cex_history <- cex_history[1:round,]
+    cvs <- curr_cex_history[,1]
+    rats <- curr_cex_history[,2]
+    #too much text
+    closest_below <- min(cvs[which(rats < 1)])
+    #too little text
+    closest_above <- max(cvs[which(rats > 1)])
+    # cex_weights <- (1 / abs(1-cex_history[1:round,2]))^0.5
+    # cex_weights <- cex_weights / sum(cex_weights)
+    # cex <- sum(cex_history[1:round,1] * cex_weights) * 0.9 + propcex * 0.1
+    if(round != n_rounds){
+      cex <- (closest_above * 0.5 + closest_below * 0.5)
+      # print(paste0("above: ", closest_above, ",\nbelow: ", closest_below, ",\nnew cex: ", cex))
+      # cex <- cex * ifelse(abs(rats[round] - rats[round-1]) < 1E-4 & wiggle, exp(rnorm(1, 0, 0.01)), 1)
+    } 
+    if(round == (n_rounds-1)){   
+        cex <- curr_cex_history[which.min(abs(curr_cex_history[,2]-1)),1]
+        
+        #get just the ones where all the text is there
+        cvs <- curr_cex_history[,1]
+        rats <- curr_cex_history[,2]
+        closest_above <- which(rats > 1)
+        cex <- cvs[closest_above[which.min(rats[closest_above])]]
     }
   }
+
 
 }
 
 dev.off()
 
+#current error -- can't skip lines!
 
 #figure out color info
 nlines <- length(unique(charmat[,4]))
@@ -594,6 +650,7 @@ for(bcoli in 1:length(background_cols)){
       if(i %% round(length(txt) / 10) == 0) cat(i / round(length(txt) / 10) * 10, " ")
       text(labels = charmat$char[i], x = charmat$x[i] - ifelse(txt[i] == "Rethink Priorities", 0.02, 0), y = charmat$y[i],
            col = charmat$col[i], cex = cex, font = font, pos = 4, family = family, srt = rotation_angle)
+      # abline(h = charmat$y[i] - charheight / 4, lwd = 0.01)
       
     }
   }

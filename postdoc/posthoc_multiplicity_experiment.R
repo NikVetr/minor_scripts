@@ -5,14 +5,17 @@ library(cmdstanr)
 library(posterior)
 
 #simulate data
-n_rep <- 2E2
+n_rep <- 1E2
 n <- 20
-a <- rnorm(n_rep, sd = 0.1)
+sd_a <- 0.5
+sd_b <- 0.1
+sd_e <- 1
+a <- rnorm(n_rep, sd = 0.5)
 b <- rnorm(n_rep, sd = 0.1)
 # a <- rep(0, n_rep)
 # b <- rep(0, n_rep)
 x <- replicate(n_rep, rnorm(n))
-y <- sapply(1:n_rep, function(i) a[i] + b[i] * x[,i] + rnorm(n))
+y <- sapply(1:n_rep, function(i) a[i] + b[i] * x[,i] + rnorm(n, sd = sd_e))
 fits <- data.frame(t(sapply(1:n_rep, function(i){
   fit <- lm(y[,i] ~ x[,i])
   c(summary(fit)$coefficients, summary(fit)$r.squared)
@@ -70,7 +73,7 @@ out <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, 
 
 samps <- data.frame(as_draws_df(out$draws()))
 
-subset_samps <- function(include = "", exclude = "", samps){
+subset_samps <- function(include = NULL, exclude = NULL, samps){
   incl_inds <- unique(unlist(lapply(include, function(i) grep(i, colnames(samps)))))
   excl_inds <- unique(unlist(lapply(exclude, function(i) grep(i, colnames(samps)))))
   return_inds <- setdiff(incl_inds, excl_inds)
@@ -212,7 +215,175 @@ out_single <- data.frame(do.call(rbind, parallel::mclapply(1:n_rep, function(i){
   c(est_a = mean(samps_single$a), est_b = mean(samps_single$b), sd_a = sd(samps_single$a), sd_b= sd(samps_single$b))
 }, mc.cores = 16)))
 
+par(mfrow = c(2,2))
 plot(out_single$est_a, fits$est_a); abline(0,1)
 plot(out_single$sd_a, fits$se_a); abline(0,1)
 plot(out_single$est_b, fits$est_b); abline(0,1)
 plot(out_single$sd_b, fits$se_b); abline(0,1)
+
+#### ok, now let's check to see if we can do some sort of multilevel empirical bayes maximum marginal likelihood thing ####
+stan_program_multilevel <- "
+data {
+  int<lower=1> n;
+  int<lower=1> n_rep;
+  matrix[n_rep, n] x;
+  matrix[n_rep, n] y;
+}
+parameters {
+  vector[n_rep] a;
+  vector[n_rep] b;
+  vector<lower=0>[n_rep] sigma_e;
+  real<lower=0> sigma_a;
+  real<lower=0> sigma_b;
+  
+}
+model {
+  a ~ normal(0,sigma_a);
+  sigma_a ~ normal(0,1);
+  b ~ normal(0,sigma_b);
+  sigma_b ~ normal(0,1);
+  sigma_e ~ normal(0,1);
+  for(i in 1:n_rep){
+    y[i,] ~ normal(a[i] + x[i,] * b[i], sigma_e[i]);
+  }
+}
+"
+mod_multilevel <- cmdstan_model(write_stan_file(stan_program_multilevel))
+
+
+#fit model
+out_multilevel <- mod_multilevel$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, adapt_delta = 0.95)
+samps_multilevel <- data.frame(as_draws_df(out_multilevel$draws()))
+
+#test if sd(a) is equal to sd_a
+sd(apply(subset_samps("a\\.", samps = samps_multilevel), 2, mean))
+sd(unlist(subset_samps("a\\.", samps = samps_multilevel)))
+mean(samps_multilevel$sigma_a)
+sd_a
+
+sd(apply(subset_samps("b\\.", samps = samps_multilevel), 2, mean))
+sd(unlist(subset_samps("b\\.", samps = samps_multilevel)))
+mean(samps_multilevel$sigma_b)
+sd_b
+
+hist(samps_multilevel$sigma_a)
+abline(v = sd(apply(subset_samps("a\\.", samps = samps_multilevel), 2, mean)), col = 2, lwd = 2)
+
+hist(samps_multilevel$sigma_b)
+abline(v = sd(apply(subset_samps("b\\.", samps = samps_multilevel), 2, mean)), col = 2, lwd = 2)
+
+stan_program_singlelevel <- "
+data {
+  int<lower=1> n;
+  int<lower=1> n_rep;
+  matrix[n_rep, n] x;
+  matrix[n_rep, n] y;
+}
+parameters {
+  vector[n_rep] a;
+  vector[n_rep] b;
+  vector<lower=0>[n_rep] sigma_e;
+}
+model {
+  a ~ normal(0,100);
+  b ~ normal(0,100);
+  sigma_e ~ normal(0,100);
+  for(i in 1:n_rep){
+    y[i,] ~ normal(a[i] + x[i,] * b[i], sigma_e[i]);
+  }
+}
+"
+
+mod_singlelevel <- cmdstan_model(write_stan_file(stan_program_singlelevel))
+
+#fit model
+out_singlelevel <- mod_singlelevel$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = d, parallel_chains = 4, adapt_delta = 0.95)
+samps_singlelevel <- data.frame(as_draws_df(out_singlelevel$draws()))
+
+sd(apply(subset_samps("a\\.", samps = samps_singlelevel), 2, mean))
+sd(unlist(subset_samps("a\\.", samps = samps_singlelevel)))
+
+sd(apply(subset_samps("a\\.", samps = samps_multilevel), 2, mean))
+sd(unlist(subset_samps("a\\.", samps = samps_multilevel)))
+
+sd(apply(subset_samps("b\\.", samps = samps_singlelevel), 2, mean))
+sd(unlist(subset_samps("b\\.", samps = samps_singlelevel)))
+
+sd(apply(subset_samps("b\\.", samps = samps_multilevel), 2, mean))
+sd(unlist(subset_samps("b\\.", samps = samps_multilevel)))
+sd_b
+
+mod_singlelevel <- cmdstan_model(write_stan_file(stan_program_singlelevel))
+
+#fit model
+out_singlelevel_vb <- mod_singlelevel$variational(data = d, adapt_engaged = T)
+samps_singlelevel_vb <- data.frame(as_draws_df(out_singlelevel_vb$draws()))
+
+
+sd(apply(subset_samps(include = "a\\.", samps = samps_singlelevel_vb), 2, mean))
+sd(unlist(subset_samps("a\\.", samps = samps_singlelevel_vb)))
+sd_a
+
+sd(apply(subset_samps(include = "b\\.", samps = samps_singlelevel_vb), 2, mean))
+sd(unlist(subset_samps("b\\.", samps = samps_singlelevel_vb)))
+sd(apply(subset_samps(include = "b\\.", samps = samps_multilevel), 2, mean))
+sd(unlist(subset_samps("b\\.", samps = samps_multilevel)))
+mean(subset_samps("sigma_b", samps = samps_multilevel))
+sd_b
+
+sd(fits$est_b)
+
+
+stan_program_vb <- "
+data {
+  int<lower=1> n;
+  int<lower=1> n_rep;
+  matrix[n_rep, n] x;
+  matrix[n_rep, n] y;
+  real<lower=0> sigma_a;
+  real<lower=0> sigma_b;
+}
+parameters {
+  vector[n_rep] a;
+  vector[n_rep] b;
+  vector<lower=0>[n_rep] sigma_e;
+}
+model {
+  a ~ normal(0, sigma_a);
+  b ~ normal(0, sigma_b);
+  sigma_e ~ normal(0, 100);
+  for(i in 1:n_rep){
+    y[i,] ~ normal(a[i] + x[i,] * b[i], sigma_e[i]);
+  }
+}
+"
+
+mod_vb <- cmdstan_model(write_stan_file(stan_program_vb))
+
+d_vb <- list(n = n,
+          n_rep = n_rep,
+          x = t(x),
+          y = t(y),
+          sigma_a = 100,
+          sigma_b = 100
+)
+
+out_vb <- mod_vb$variational(data = d_vb, adapt_engaged = T)
+
+est_sigmas <- list(
+  sigma_a = sd(unlist(subset_samps("a\\.", samps = data.frame(as_draws_df(out_vb$draws()))))),
+  sigma_b = sd(unlist(subset_samps("b\\.", samps = data.frame(as_draws_df(out_vb$draws())))))
+)
+d_vb <- list(n = n,
+             n_rep = n_rep,
+             x = t(x),
+             y = t(y),
+             sigma_a = est_sigmas$sigma_a,
+             sigma_b = est_sigmas$sigma_b
+)
+out_vb <- mod_vb$variational(data = d_vb, adapt_engaged = T)
+est_sigmas
+
+mean(samps_multilevel$sigma_a)
+mean(samps_multilevel$sigma_b)
+est_sigmas

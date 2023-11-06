@@ -59,7 +59,7 @@ penalize_geography_indiv <- function(indiv, indiv_table, compl_tables, table_clo
 #want to maximize uniformity
 eval_tables <- function(x, vals){
   tabx <- table(vals[x])
-  sum(1-1/(2^tabx)) #geometric series 1/2 + 1/4 + 1/8 etc.
+  -sum(1-1/(2^tabx)) #geometric series 1/2 + 1/4 + 1/8 etc.
 }
 
 #want to maximize spread
@@ -127,7 +127,7 @@ init_match <- ceiling(1:n/nseats)
 if(n%%nseats != 0){
   init_match[(ntables*nseats+1):n] <- 1:(n%%nseats)
 }
-tables <- init_tables <- split(seq_along(init_match), init_match)
+tables <- init_tables <- best_tables <- split(seq_along(init_match), init_match)
 
 #suppose we hate this initial location
 match_penalty_matrix <- Reduce("+", lapply(tables, function(x){

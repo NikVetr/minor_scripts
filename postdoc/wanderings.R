@@ -83,9 +83,6 @@ txt$pos_descr <- paste0(txt$name, ", ",
                         common)
 txt <- txt[match(unique(txt$name), txt$name),]
 
-#merge the two
-txt <- cbind(txt, fonts[,-which(colnames(fonts) == "Unique_Word")])
-
 #dload and match fonts
 # fonts <- readLines("~/Documents/Documents - nikolai/wanderings_fonts_matched.txt", warn = F)
 # fonts <- extract_table(fonts)
@@ -96,6 +93,10 @@ fonts <- readLines("~/Documents/Documents - nikolai/wanderings_font_multimatch.t
 fonts <- extract_table(fonts)
 fonts <- fonts[trimws(tolower(fonts$Font_Name)) %in% trimws(tolower(font_info$font_names)),]
 fonts$n <- as.numeric(table(fonts$Font_Name)[fonts$Font_Name])
+
+
+#merge the two
+txt <- cbind(txt, fonts[,-which(colnames(fonts) == "Unique_Word")])
 
 #find text similarity to rank fonts
 
@@ -180,7 +181,6 @@ unzips$fontnames <- sapply(unzips$file, function(x){
   trimws(fullname)
 })
 fonts$family <- setNames(unzips$fontnames, unzips$font)[fonts$font_id]
-
 
 #original approach to doing all this
 dload_fonts <- F

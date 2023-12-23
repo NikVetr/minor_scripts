@@ -1,4 +1,5 @@
 #load libraries
+library(future)
 library(MASS)
 library(mvtnorm)
 library(cmdstanr)
@@ -9,7 +10,7 @@ logit <- function(p) log(p/(1-p))
 invlogit <- function(x) {exp(x) / (1+exp(x))}
 
 #simulate data
-n <- 1000
+n <- 200
 n0 <- round(n / 2)
 x <- rnorm(n)
 xb <- rnorm(n)
@@ -25,6 +26,7 @@ cf <- rbinom(n, tf, pf)
 cc <- rbinom(n, tc, pc)
 
 #fit bayesian model
+plan(multisession)
 d <- list(n = n,
           tf = tf,
           tc = tc,
@@ -35,10 +37,10 @@ d <- list(n = n,
 stan_program <- "
 data {
   int<lower=1> n;
-  int<lower=0> tf[n];
-  int<lower=0> tc[n];
-  int<lower=0> cf[n];
-  int<lower=0> cc[n];
+  array[n] int<lower=0> tf;
+  array[n] int<lower=0> tc;
+  array[n] int<lower=0> cf;
+  array[n] int<lower=0> cc;
 }
 parameters {
   vector[n] x;
@@ -70,7 +72,19 @@ if(!exists("curr_stan_program") || stan_program!= curr_stan_program){
 mod <- cmdstan_model(f)
 
 #fit model
-out <- mod$sample(chains = 4, iter_sampling = 5E2, iter_warmup = 5E2, data = d, parallel_chains = 4, adapt_delta = 0.85)
+future({
+  sink("~/test_mcmc_progress.txt")
+  mod$sample(chains = 4, iter_sampling = 5E2, iter_warmup = 5E2, 
+             data = d, parallel_chains = 4, adapt_delta = 0.85)
+  
+  # summ <- out$summary()
+  cat("\n\n")
+  print(summ[order(summ$ess_bulk),])
+  cat("\n\n")
+  print(summ[order(summ$rhat, decreasing = T),])
+  sink()
+  save(out, file = paste0("~/test_mcmc_output", ".cmdStanR.fit"))
+})
 # summ <- out$summary()
 # summ[order(summ$ess_bulk),]
 # summ[order(summ$rhat, decreasing = T),]

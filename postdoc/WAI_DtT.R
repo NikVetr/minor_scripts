@@ -1,5 +1,10 @@
 #high level parameters
-adj_for_inflation <- F
+remove_big_donations <- F
+plot_num_indiv <- F
+adj_for_inflation <- T
+infl_ym <- "2015/01"
+infl_ym_str <- paste0("(", month.abb[as.numeric(strsplit(infl_ym, "/")[[1]][2])], 
+                      ". ", strsplit(infl_ym, "/")[[1]][1], " equiv.)")
 bw <- 1
 ndays_to_merge <- 0
 
@@ -124,10 +129,23 @@ blend_with_color <- function(base_color, blend_color = "white", alpha) {
 
 #read in data
 d <- read.csv("~/Downloads/WAI_donations.csv")
+d <- d[d$Date != "",]
+d$dollars <- as.numeric(gsub(",", "", trimws(d$Amount)))
+
+#simulate fake data for sharing purposes
+d$Date <- paste0(substr(d$Date, start = 1, nchar(d$Date)-2), 
+                 sample(15:23, size = nrow(d), T, prob = 15:23-14))
+dy <- split(d, as.numeric(do.call(rbind, strsplit(d$Date, "/"))[,3]))
+# d <- do.call(rbind, lapply(names(dy), function(yi) {
+#   rinds <- sample(x = 1:nrow(dy[[yi]]), 
+#          size = nrow(dy[[yi]]) * (0.7 + (as.numeric(yi) - min(as.numeric(names(dy)))) / 1), 
+#          replace = T)
+#   dy[[yi]][rinds,]
+# }))
+d$dollars <- sample(d$dollars, length(d$dollars), T) * rlnorm(nrow(d), 1, 2)
 
 #clean & process data file
 d <- d[d$Amount != "",]
-d$dollars <- as.numeric(gsub(",", "", trimws(d$Amount)))
 d <- d[d$dollars > 1,] #some adjustments for things are negative, ignore for now
 d$date <- as.Date(d$Date, format = "%m/%d/%Y")
 d <- d[order(d$date),]
@@ -137,6 +155,7 @@ d$day <- as.numeric(format(d$date, "%d"))
 d$month <- as.numeric(format(d$date, "%m"))
 d$year.month <- format(d$date, "%Y/%m")
 d <- d[d$year.month < "2023/09",]
+
 
 #incorporate inflation from https://www.bls.gov/regions/mid-atlantic/data/consumerpriceindexhistorical_us_table.htm
 cpi <- read.csv("~/Downloads/CPI_USA.csv", header = T)
@@ -148,12 +167,12 @@ cpi <- reshape(cpi,
                      direction = "long", 
                      timevar = "Month")
 cpi$year.month <- format(as.Date(paste0(cpi$Year, "/", cpi$Month, "/01")), "%Y/%m")
-d$dollars_feb2018_equiv <- d$dollars * cpi$CPI[match("2018/02", cpi$year.month)] / 
+d$dollars_infl_adj <- d$dollars * cpi$CPI[match(infl_ym, cpi$year.month)] / 
   cpi$CPI[match(d$year.month, cpi$year.month)] 
 d$dollars_nominal <- d$dollars
 
 if(adj_for_inflation){
-  d$dollars <- d$dollars_feb2018_equiv
+  d$dollars <- d$dollars_infl_adj
 } else {
   d$dollars <- d$dollars_nominal
 }
@@ -177,7 +196,7 @@ d <- do.call(rbind, lapply(indivs, function(x){
         new_donation_chunk$date <- new_donation_chunk$date + 
           sum(c(0,diff(donation_chunk$date)) * weights)
         new_donation_chunk$dollars <- 
-          new_donation_chunk$dollars_feb2018_equiv <- 
+          new_donation_chunk$dollars_infl_adj <- 
           sum(donation_chunk$dollars)
         new_donation_chunk$dollars_nominal <- sum(donation_chunk$dollars_nominal)
         new_donation_chunk$logdol <- log10(new_donation_chunk$dollars)
@@ -236,7 +255,9 @@ dsc_n_indiv <- lapply(ds, function(x){
   out <- as.data.frame(table(x$year.month))
   out$month <- as.Date(paste0(as.character(out$Var1), "/15"), format = "%Y/%m/%d")
   out <- out[,c("month", "Freq")]
-  out <- rbind(out, data.frame(month = all_months[!all_months %in% out$month], Freq = 0))
+  if(!all(all_months %in% out$month)){
+    out <- rbind(out, data.frame(month = all_months[!all_months %in% out$month], Freq = 0))  
+  }  
   return(out[order(out$month),])
 })
 
@@ -246,9 +267,17 @@ dsc_n_tot <- lapply(ds, function(x){
   out <- data.frame(Var1 = names(out), Freq = out)
   out$month <- as.Date(paste0(as.character(out$Var1), "/15"), format = "%Y/%m/%d")
   out <- out[,c("month", "Freq")]
-  out <- rbind(out, data.frame(month = all_months[!all_months %in% out$month], Freq = 0))
+  if(!all(all_months %in% out$month)){
+    out <- rbind(out, data.frame(month = all_months[!all_months %in% out$month], Freq = 0))  
+  }
   return(out[order(out$month),])
 })
+
+if(plot_num_indiv){
+  dsc <- dsc_n_indiv
+} else {
+  dsc <- dsc_n_tot
+}
 
 #plot now
 plot(x = range(d$date), y = log10(range(do.call(rbind, dsc)$Freq)), 
@@ -259,19 +288,13 @@ for(i in 1:k){
 
 
 #### export to pdf ####
-plot_num_indiv <- T
-if(plot_num_indiv){
-  dsc <- dsc_n_indiv
-} else {
-  dsc <- dsc_n_tot
-}
 season_cols <- c("#DC3545", 
                  "#FFC107",
                  "#007BFF", 
                  "#28A745")
 
 cols <- blend_with_color(viridisLite::plasma(k), 1, 0.7)$hex
-grDevices::cairo_pdf(filename = paste0("~/Documents/WAI_donations.pdf"), 
+grDevices::cairo_pdf(filename = paste0("~/Documents/donations_through_time.pdf"), 
                      width = 1500 / 72, height = 1500 / 72 * (k+1)/6 / 2, family="Arial Unicode MS", 
                      pointsize = 19)
 
@@ -283,7 +306,10 @@ for(i in 1:k){
        frame.plot = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "",
        xlim = range(d$date), cex.lab = 1.5, ylim = c(0, max((dsc[[i]]$Freq))))
   mtext(paste0("$", pretty_large_number(10^breaks[i]), " - $", 
-               pretty_large_number(10^breaks[i+1]), paste0(" USD ", ifelse(adj_for_inflation, "(Feb. 2018 equiv.)", "(nominal)"))), 
+               pretty_large_number(10^breaks[i+1]), 
+               paste0(" USD ", ifelse(adj_for_inflation, 
+                                      infl_ym_str, 
+                                      "(nominal)"))), 
         line = 0.5, col = cols[i])
   
   #smoothed line
@@ -347,7 +373,6 @@ for(i in 1:k){
 dev.off()
 
 #### all in one graph ####
-plot_num_indiv <- F
 if(plot_num_indiv){
   dsc <- dsc_n_indiv
 } else {
@@ -360,7 +385,7 @@ season_cols <- c("#DC3545",
 
 cols <- blend_with_color(viridisLite::plasma(k), 1, 0.7)$hex
 par(mar = c(5,6,3,5))
-grDevices::cairo_pdf(filename = paste0("~/Documents/WAI_donations_all_together.pdf"), 
+grDevices::cairo_pdf(filename = paste0("~/Documents/donations_through_time_aggregated.pdf"), 
                      width = 1500 / 72 / 2, height = 1500 / 72 * (k+1)/6 / 2 / 4, family="Arial Unicode MS", 
                      pointsize = 16)
 
@@ -382,7 +407,7 @@ for(i in 2:k){
 }
 
 mtext(paste0("$", pretty_large_number(10^breaks[i]), " - $", 
-             pretty_large_number(10^breaks[i+1]), paste0(" (USD, ", ifelse(adj_for_inflation, "Feb. 2018 equiv.)", "nominal)"))), 
+             pretty_large_number(10^breaks[i+1]), paste0(" (USD, ", ifelse(adj_for_inflation, substr(infl_ym_str, 2, nchar(infl_ym_str)), "nominal)"))), 
       line = 0.5, col = cols[i])
 
 
@@ -443,7 +468,10 @@ dev.off()
 #### prop total donations ####
 
 #remove donations >$0.5M
-d <- d[d$dollars <= 5E5,]
+if(remove_big_donations){
+  d <- d[d$dollars <= 5E5,]  
+}
+
 # d <- d[!grepl("- Restricted", d$Account),]
 
 all_year.months <- format(all_months, "%Y/%m")
@@ -482,12 +510,12 @@ titles <- c("Monthly Donation Amounts",
             "Cumulative Monthly Donation Amounts",
             "Monthly Donation Proportions",
             "Cumulative Monthly Donation Proportions")
-ylabs <- c(paste0("USD Donated ", ifelse(adj_for_inflation, "(Feb. 2018 equiv.)", "(nominal)")), 
-           paste0("USD ", ifelse(adj_for_inflation, "(Feb. 2018 equiv.)", "(nominal)")), 
+ylabs <- c(paste0("USD Donated ", ifelse(adj_for_inflation, infl_ym_str, "(nominal)")), 
+           paste0("USD ", ifelse(adj_for_inflation, infl_ym_str, "(nominal)")), 
            "Proportion Donations", "Proportion Donations")
 
 #actual plotting
-grDevices::cairo_pdf(filename = paste0("~/Documents/WAI_donations_proptotal.pdf"), 
+grDevices::cairo_pdf(filename = paste0("~/Documents/donations_through_time_proptotal.pdf"), 
                      width = 1500 / 72, height = 1000 / 72, family="Arial Unicode MS", 
                      pointsize = 22)
 par(mar = c(5,5.5,3,3))

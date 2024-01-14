@@ -773,6 +773,396 @@ expand_blocks <- function(grid, pt_sets = NULL, prop_expansion_rate = F, max_exp
   return(exp_grid)
 }
 
+place_word <- function(i, word_used, word_w, ws_w, v_adj, v_adj_s, word_h, word_h_buffered,
+                       grid, word_locations, fast_invalid, verbose, n_words_per_sentence){
+  
+  if(all(word_used)){
+    return(list(word_used = word_used, 
+                grid = grid, 
+                word_locations = word_locations))
+  }
+  
+  # if(i == 29 & !is.null(word_locations[[i]]) && nrow(word_locations[[i]]) == 2){
+  #   keep_going <- F
+  #   break
+  # }
+  
+  #process current state of grid
+  start_position_info <- find_compatible_start(mat = grid == 0 | grid == i, 
+                                               p = ceiling(word_h_buffered),
+                                               q = ceiling(word_w[!word_used][1] + ws_w), 
+                                               target_rows = ifelse2(is.null(word_locations[[i]]),
+                                                                     NULL,
+                                                                     tail(word_locations[[i]], 1)$ri + ceiling(word_h)),
+                                               # target_rows = ifelse2(is.null(word_locations[[i]]), 
+                                               #                       NULL, 
+                                               #                       max(which(grid == i, arr.ind=T)[,1])),
+                                               target_cols = ifelse2(is.null(word_locations[[i]]),
+                                                                     NULL,
+                                                                     (tail(word_locations[[i]], 1)$ci - ceiling(word_w[!word_used][1] / 2)):
+                                                                       (tail(word_locations[[i]], 1)$ci + 
+                                                                          ceiling(tail(word_locations[[i]], 1)$width) - ceiling(word_w[!word_used][1] / 2)
+                                                                       )
+                                               )
+                                               # target_cols = NULL
+  )
+  
+  # grid[max(1, (start_position_info$row)) :
+  #        min(nrow(grid), (start_position_info$row + ceiling(word_h) - 1)),
+  #      max(1, (start_position_info$col)) :
+  #        min(ncol(grid), (start_position_info$col + start_position_info$max_width - 1))]
+  
+  # grid[max(1, (start_position_info$row-1)) :
+  #        min(nrow(grid), (start_position_info$row + ceiling(word_h) - 0)),
+  #      max(1, (start_position_info$col-1)) :
+  #        min(ncol(grid), (start_position_info$col + start_position_info$max_width - 0))]
+  
+  
+  #try another starting location if this failed to find anything
+  if(is.null(start_position_info)){
+    
+    if(verbose){cat(paste0(" (bs) "))}
+    
+    if(fast_invalid){
+      #mark all currently filled sentence locations as invalid
+      grid[grid == i] <- -1
+      
+    } else {
+      #empty filled spots for sentence
+      grid[grid == i] <- 0
+      
+      #mark only first word location as invalid
+      string_info <- head(word_locations[[i]], 1)
+      end_col <- min(ceiling(string_info$ci + string_info$width - 1), ncol(grid))
+      end_row <- ceiling(string_info$ri + string_info$height - 1)
+      cols_filled <- string_info$ci : end_col
+      rows_filled <- string_info$ri : end_row
+      
+      grid[rows_filled, cols_filled] <- -1
+    }
+    
+    
+    #clear other tracking variables
+    word_used <- rep(F, n_words_per_sentence[i])
+    word_locations[i] <- list(NULL)
+    
+    return(list(word_used = word_used, 
+                grid = grid, 
+                word_locations = word_locations))
+    
+  }
+  
+  if(verbose){cat(paste0(" (row: ", start_position_info$row, ")"))}
+  
+  #process sentence to be added
+  words_needing_to_be_placed <- which(!word_used)
+  cumulative_word_width <- cumsum(word_w[words_needing_to_be_placed]) + 
+    cumsum(c(rep(ws_w, length(words_needing_to_be_placed)))) #also include ws at the end of the line
+  words_that_fit <- words_needing_to_be_placed[cumulative_word_width < start_position_info$max_width]
+  string_to_place <- paste0(names(dims[[i]]$w[words_that_fit]), collapse = " ")
+  if(verbose){cat(paste0(" (words: ", string_to_place, ")"))}
+  
+  
+  #compile new sentence info
+  string_info <- data.frame(string = string_to_place,
+                            ci = start_position_info$col,
+                            ri = start_position_info$row,
+                            width = as.numeric(cumulative_word_width[length(words_that_fit)]),
+                            v_adj = v_adj,
+                            height = word_h,
+                            buffered_height = word_h_buffered,
+                            v_adj_s = v_adj_s
+  )
+  
+  
+  #left or right justify text if possible, and if not, get as close as possible
+  #otherwise prefer left justification in left half and right justification in right half of image
+  justification <- NA
+  if(!is.null(word_locations[[i]])){
+    
+    # if(i == 4 & nrow(word_locations[[i]]) == 2){
+    #   keep_going <- F
+    #   break
+    # }
+    
+    previous_string_info <- tail(word_locations[[i]], 1)
+    prev_on_the_right <- (previous_string_info$ci + previous_string_info$width / 2) > (ncol(grid) / 2)
+    
+    row_bounds <- c(tr = string_info$ri,
+                    br = min(ceiling(string_info$ri + word_h_buffered - 1), nrow(grid)))
+    
+    lj_bounds <- c(lc = previous_string_info$ci,
+                   rc = previous_string_info$ci + ceiling(string_info$width) - 1)
+    
+    rj_bounds <- c(rc = previous_string_info$ci + ceiling(previous_string_info$width) - 1)
+    rj_bounds <- c(lc = as.numeric(rj_bounds["rc"]) - ceiling(string_info$width) + 1, rj_bounds)
+    
+    c_bounds <- c(cc = previous_string_info$ci + ceiling(previous_string_info$width / 2) - 1)
+    c_bounds <- c(lc = as.numeric(c_bounds["cc"]) - ceiling(string_info$width / 2) + 1)
+    c_bounds <- c(c_bounds["lc"],
+                  rc = as.numeric(c_bounds["lc"]) + ceiling(string_info$width) - 1)
+    
+    
+    if(string_info$ri <= nrow(grid)){
+      
+      #find maximum extent of horizontal stretch that contains start pos
+      subgrid <- grid[row_bounds["tr"] : row_bounds["br"], , drop = F]
+      rle_cols <- rle(apply(subgrid == 0 | subgrid == i, 2, all))
+      run_inds <- cbind(c(1, cumsum(rle_cols$lengths)[-length(rle_cols$lengths)] + 1), 
+                        cumsum(rle_cols$lengths))
+      run_inds <- run_inds[rle_cols$values, , drop = FALSE]
+      max_bounds <- run_inds[run_inds[,1] <= string_info$ci & run_inds[,2] >= string_info$ci,]
+      names(max_bounds) <- c("lc", "rc")
+      
+      #check left justified
+      if(all(lj_bounds >= 1 & lj_bounds <= ncol(grid))){
+        subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
+                        lj_bounds["lc"] : lj_bounds["rc"]]
+        left_possible <- all(subgrid == 0 | subgrid == i)
+      } else {
+        left_possible <- F
+      }
+      overlap_bounds <- c(lc = max(max_bounds["lc"], lj_bounds["lc"]),
+                          rc = min(max_bounds["rc"], lj_bounds["rc"]))
+      lj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
+                             rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
+      if(lj_closest_bounds["rc"] > max_bounds["rc"]){
+        lj_closest_bounds <- lj_closest_bounds - (lj_closest_bounds["rc"] - max_bounds["rc"])
+      }
+      lj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
+                                  closest_bounds = lj_closest_bounds)
+      
+      #check right justified
+      if(all(rj_bounds >= 1 & rj_bounds <= ncol(grid))){
+        subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
+                        rj_bounds["lc"] : rj_bounds["rc"]]
+        right_possible <- all(subgrid == 0 | subgrid == i)
+      } else {
+        right_possible <- F
+      }
+      overlap_bounds <- c(lc = max(max_bounds["lc"], rj_bounds["lc"]),
+                          rc = min(max_bounds["rc"], rj_bounds["rc"]))
+      rj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
+                             rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
+      if(rj_closest_bounds["rc"] > max_bounds["rc"]){
+        rj_closest_bounds <- rj_closest_bounds - (rj_closest_bounds["rc"] - max_bounds["rc"])
+      }
+      rj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
+                                  closest_bounds = rj_closest_bounds)
+      
+      #check centered
+      if(all(c_bounds >= 1 & c_bounds <= ncol(grid))){
+        subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
+                        c_bounds["lc"] : c_bounds["rc"]] 
+        center_possible <- all(subgrid == 0 | subgrid == i)
+      } else {
+        center_possible <- F
+      }
+      overlap_bounds <- c(lc = max(max_bounds["lc"], c_bounds["lc"]),
+                          rc = min(max_bounds["rc"], c_bounds["rc"]))
+      c_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
+                            rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
+      if(c_closest_bounds["rc"] > max_bounds["rc"]){
+        c_closest_bounds <- c_closest_bounds - (c_closest_bounds["rc"] - max_bounds["rc"])
+      }
+      c_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
+                                 closest_bounds = c_closest_bounds)
+      
+    } else { #if we are off the bottom of the grid
+      
+      max_bounds <- c(lc = 1, rc = ncol(grid))
+      
+      #check left justified
+      if(all(lj_bounds >= 1 & lj_bounds <= ncol(grid))){
+        left_possible <- T
+      } else {
+        left_possible <- F
+        overlap_bounds <- c(lc = max(max_bounds["lc"], lj_bounds["lc"]),
+                            rc = min(max_bounds["rc"], lj_bounds["rc"]))
+        lj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
+                               rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
+        if(lj_closest_bounds["rc"] > max_bounds["rc"]){
+          lj_closest_bounds <- lj_closest_bounds - (lj_closest_bounds["rc"] - max_bounds["rc"])
+        }
+        lj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
+                                    closest_bounds = lj_closest_bounds)
+      }
+      
+      #check right justified
+      if(all(rj_bounds >= 1 & rj_bounds <= ncol(grid))){
+        right_possible <- T
+      } else {
+        right_possible <- F
+        overlap_bounds <- c(lc = max(max_bounds["lc"], rj_bounds["lc"]),
+                            rc = min(max_bounds["rc"], rj_bounds["rc"]))
+        rj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
+                               rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
+        if(rj_closest_bounds["rc"] > max_bounds["rc"]){
+          rj_closest_bounds <- rj_closest_bounds - (rj_closest_bounds["rc"] - max_bounds["rc"])
+        }
+        rj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
+                                    closest_bounds = rj_closest_bounds)
+      }
+    }
+    
+    #now shift the indices over appropriately
+    
+    #both possible
+    if(left_possible & right_possible){
+      
+      if(prev_on_the_right){
+        #right justify
+        string_info$ci <- rj_bounds["lc"]
+        justification <- "right"
+      } else{
+        #left justify
+        string_info$ci <- lj_bounds["lc"]
+        justification <- "left"
+      }
+      
+      #only one possible
+    } else if(left_possible){
+      #left justify
+      string_info$ci <- lj_bounds["lc"]
+      justification <- "left"
+      
+    } else if(right_possible){
+      #right justify
+      string_info$ci <- rj_bounds["lc"]
+      justification <- "right"
+      
+      #neither possible, but one much gets closer
+      #can also consider chopping off words
+    } else if(abs(rj_closest_possible[["p"]] - lj_closest_possible[["p"]]) > 0.25){
+      if(rj_closest_possible[["p"]] > lj_closest_possible[["p"]]){
+        #right justify
+        string_info$ci <-rj_closest_possible[["closest_bounds"]]["lc"]
+        justification <- "more_right"
+      } else {
+        #left justify
+        string_info$ci <- lj_closest_possible[["closest_bounds"]]["lc"]
+        justification <- "more_left"
+      }
+      
+      #neither possible, but both are approx. equally close
+    } else {
+      if(prev_on_the_right){
+        #right justify
+        string_info$ci <- rj_closest_possible[["closest_bounds"]]["lc"]
+        justification <- "more_right"
+      } else{
+        #left justify
+        string_info$ci <- lj_closest_possible[["closest_bounds"]]["lc"]
+        justification <- "more_left"
+      }
+    }
+    
+  }
+  
+  string_info$just <- justification
+  
+  #mark words as having been placed
+  word_used[words_that_fit] <- T
+  
+  #process grid locations
+  end_col <- ceiling(string_info$ci + string_info$width - 1)
+  end_col <- min(end_col, ncol(grid))
+  # end_row <- ceiling(string_info$ri + ifelse(all(word_used), word_h_buffered, word_h) - 1)
+  end_row <- ceiling(string_info$ri + word_h_buffered - 1)
+  string_info$end_ci <- end_col
+  string_info$end_ri <- end_row
+  
+  cols_filled <- floor(string_info$ci) : end_col
+  rows_filled <- string_info$ri : end_row
+  
+  #expand grid if necessary
+  if(end_row > nrow(grid)){
+    grid <- rbind(grid, matrix(0, ncol = ncol(grid), nrow = end_row - nrow(grid)))
+    if(verbose){cat("\n\nexpand")}
+  }
+  
+  #check all proposed spots are unoccupied
+  if(!all(grid[rows_filled, cols_filled] == 0 |
+          grid[rows_filled, cols_filled] == i)){
+    keep_going <- F
+    cat("\n\nsomething is wrong")
+    break
+  }
+  
+  #add string to image and record locations
+  word_locations[[i]] <- rbind(word_locations[[i]], string_info)
+  grid[rows_filled, cols_filled] <- i
+  
+  #return updated data objects
+  return(list(word_used = word_used, 
+              grid = grid, 
+              word_locations = word_locations))
+  
+}
+
+place_sentence <- function(dims, grid, v_adj_factor, v_adj_factor_sentences,
+                           mean_word_h, fast_invalid = T, used, word_locations,
+                           verbose = F, n_words_per_sentence, cex_scale){
+  
+  if(all(used)){
+    return(list(grid = grid, 
+                used = used, 
+                word_locations = word_locations, 
+                keep_going = keep_going))
+  }
+  
+  #retrieve next word index
+  i <- min(which(!used))
+  word_used <- rep(F, n_words_per_sentence[i])
+  
+  #retrieve string metadata
+  word_w <- dims[[i]]$w * cex_scale
+  ws_w <- dims[[i]]$ws * cex_scale
+  v_adj <- dims[[i]]$h * cex_scale * v_adj_factor
+  v_adj_s <- dims[[i]]$h * cex_scale * v_adj_factor_sentences
+  word_h <- dims[[i]]$h * cex_scale + v_adj
+  word_h_buffered <- word_h + v_adj_s
+  
+  if(verbose){cat(paste0("\n\n", i))}else{cat(paste0("(", i, ") "))}
+  
+  while(!all(word_used)){
+    word_out <- place_word(i = i, 
+                           word_used = word_used, 
+                           word_w = word_w, 
+                           ws_w = ws_w, 
+                           v_adj = v_adj, 
+                           v_adj_s = v_adj_s, 
+                           word_h = word_h, 
+                           word_h_buffered = word_h_buffered,
+                           grid = grid, 
+                           word_locations = word_locations, 
+                           fast_invalid = fast_invalid, 
+                           verbose = verbose, 
+                           n_words_per_sentence = n_words_per_sentence)
+    
+    word_used <- word_out$word_used
+    grid <- word_out$grid
+    word_locations <- word_out$word_locations
+    
+  }
+  
+  #reset temporary forbidden spots in grid
+  grid[grid == -1] <- 0
+  
+  #mark sentence as used
+  used[i] <- T
+  if(all(used)){
+    cat("\n\nWOO-HOO finished placing sentences")
+  }
+  
+  return(list(grid = grid, 
+              used = used, 
+              word_locations = word_locations, 
+              keep_going = keep_going))
+  
+  
+}
+
 #### simulation parameters ####
 n_sentences <- 40
 n_words_per_sentence <- sample(5:12, n_sentences, T)
@@ -939,356 +1329,20 @@ word_locations <- lapply(1:n_sentences, function(i) NULL)
 verbose <- T
 keep_going <- T
 
-place_sentence <- function(dims, grid, v_adj_factor, v_adj_factor_sentences,
-                           mean_word_h, fast_invalid = T, used, word_locations,
-                           verbose = F){
-  
-}
-
-
 #run loop to place words
 while(!all(used)){
-    
-  #retrieve next word index
-  # i <- sample(which(!used), 1)
-  i <- min(which(!used))
-  word_used <- rep(F, n_words_per_sentence[i])
   
-  #retrieve string metadata
-  word_w <- dims[[i]]$w * cex_scale
-  ws_w <- dims[[i]]$ws * cex_scale
-  v_adj <- dims[[i]]$h * cex_scale * v_adj_factor
-  v_adj_s <- dims[[i]]$h * cex_scale * v_adj_factor_sentences
-  word_h <- dims[[i]]$h * cex_scale + v_adj
-  word_h_buffered <- word_h + v_adj_s
-  
-  if(verbose){cat(paste0("\n\n", i))}else{cat(paste0("(", i, ") "))}
-  
-  place_sentence(dims, grid)
-  
-  while(!all(word_used)){
-    
-    # if(i == 29 & !is.null(word_locations[[i]]) && nrow(word_locations[[i]]) == 2){
-    #   keep_going <- F
-    #   break
-    # }
-    
-    place_sentence()
-    
-    #process current state of grid
-    start_position_info <- find_compatible_start(mat = grid == 0 | grid == i, 
-                                            p = ceiling(word_h_buffered),
-                                            q = ceiling(word_w[!word_used][1] + ws_w), 
-                                            target_rows = ifelse2(is.null(word_locations[[i]]),
-                                                                  NULL,
-                                                                  tail(word_locations[[i]], 1)$ri + ceiling(word_h)),
-                                            # target_rows = ifelse2(is.null(word_locations[[i]]), 
-                                            #                       NULL, 
-                                            #                       max(which(grid == i, arr.ind=T)[,1])),
-                                            target_cols = ifelse2(is.null(word_locations[[i]]),
-                                                                 NULL,
-                                                                 (tail(word_locations[[i]], 1)$ci - ceiling(word_w[!word_used][1] / 2)):
-                                                                 (tail(word_locations[[i]], 1)$ci + 
-                                                                    ceiling(tail(word_locations[[i]], 1)$width) - ceiling(word_w[!word_used][1] / 2)
-                                                                    )
-                                                                 )
-                                            # target_cols = NULL
-                                            )
-
-    # grid[max(1, (start_position_info$row)) :
-    #        min(nrow(grid), (start_position_info$row + ceiling(word_h) - 1)),
-    #      max(1, (start_position_info$col)) :
-    #        min(ncol(grid), (start_position_info$col + start_position_info$max_width - 1))]
-
-    # grid[max(1, (start_position_info$row-1)) :
-    #        min(nrow(grid), (start_position_info$row + ceiling(word_h) - 0)),
-    #      max(1, (start_position_info$col-1)) :
-    #        min(ncol(grid), (start_position_info$col + start_position_info$max_width - 0))]
-    
-    
-    #try another starting location if this failed to find anything
-    if(is.null(start_position_info)){
-      
-      if(verbose){cat(paste0(" (bs) "))}
-      
-      if(fast_invalid){
-        #mark all currently filled sentence locations as invalid
-        grid[grid == i] <- -1
-        
-      } else {
-        #empty filled spots for sentence
-        grid[grid == i] <- 0
-        
-        #mark only first word location as invalid
-        string_info <- head(word_locations[[i]], 1)
-        end_col <- min(ceiling(string_info$ci + string_info$width - 1), ncol(grid))
-        end_row <- ceiling(string_info$ri + string_info$height - 1)
-        cols_filled <- string_info$ci : end_col
-        rows_filled <- string_info$ri : end_row
-        
-        grid[rows_filled, cols_filled] <- -1
-      }
-      
-      
-      #clear other tracking variables
-      word_used <- rep(F, n_words_per_sentence[i])
-      word_locations[i] <- list(NULL)
-      next()
-    }
-    
-    if(verbose){cat(paste0(" (row: ", start_position_info$row, ")"))}
-
-    #process sentence to be added
-    words_needing_to_be_placed <- which(!word_used)
-    cumulative_word_width <- cumsum(word_w[words_needing_to_be_placed]) + 
-      cumsum(c(rep(ws_w, length(words_needing_to_be_placed)))) #also include ws at the end of the line
-    words_that_fit <- words_needing_to_be_placed[cumulative_word_width < start_position_info$max_width]
-    string_to_place <- paste0(names(dims[[i]]$w[words_that_fit]), collapse = " ")
-    if(verbose){cat(paste0(" (words: ", string_to_place, ")"))}
-    
-    
-    #compile new sentence info
-    string_info <- data.frame(string = string_to_place,
-                              ci = start_position_info$col,
-                              ri = start_position_info$row,
-                              width = as.numeric(cumulative_word_width[length(words_that_fit)]),
-                              v_adj = v_adj,
-                              height = word_h,
-                              buffered_height = word_h_buffered,
-                              v_adj_s = v_adj_s
-    )
-    
-    
-    #left or right justify text if possible, and if not, get as close as possible
-    #otherwise prefer left justification in left half and right justification in right half of image
-    justification <- NA
-    if(!is.null(word_locations[[i]])){
-      
-      # if(i == 4 & nrow(word_locations[[i]]) == 2){
-      #   keep_going <- F
-      #   break
-      # }
-        
-      previous_string_info <- tail(word_locations[[i]], 1)
-      prev_on_the_right <- (previous_string_info$ci + previous_string_info$width / 2) > (ncol(grid) / 2)
-     
-      row_bounds <- c(tr = string_info$ri,
-                      br = min(ceiling(string_info$ri + word_h_buffered - 1), nrow(grid)))
-      
-      lj_bounds <- c(lc = previous_string_info$ci,
-                     rc = previous_string_info$ci + ceiling(string_info$width) - 1)
-      
-      rj_bounds <- c(rc = previous_string_info$ci + ceiling(previous_string_info$width) - 1)
-      rj_bounds <- c(lc = as.numeric(rj_bounds["rc"]) - ceiling(string_info$width) + 1, rj_bounds)
-      
-      c_bounds <- c(cc = previous_string_info$ci + ceiling(previous_string_info$width / 2) - 1)
-      c_bounds <- c(lc = as.numeric(c_bounds["cc"]) - ceiling(string_info$width / 2) + 1)
-      c_bounds <- c(c_bounds["lc"],
-                    rc = as.numeric(c_bounds["lc"]) + ceiling(string_info$width) - 1)
-      
-      
-      if(string_info$ri <= nrow(grid)){
-        
-        #find maximum extent of horizontal stretch that contains start pos
-        subgrid <- grid[row_bounds["tr"] : row_bounds["br"], , drop = F]
-        rle_cols <- rle(apply(subgrid == 0 | subgrid == i, 2, all))
-        run_inds <- cbind(c(1, cumsum(rle_cols$lengths)[-length(rle_cols$lengths)] + 1), 
-                          cumsum(rle_cols$lengths))
-        run_inds <- run_inds[rle_cols$values, , drop = FALSE]
-        max_bounds <- run_inds[run_inds[,1] <= string_info$ci & run_inds[,2] >= string_info$ci,]
-        names(max_bounds) <- c("lc", "rc")
-        
-        #check left justified
-        if(all(lj_bounds >= 1 & lj_bounds <= ncol(grid))){
-          subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
-                          lj_bounds["lc"] : lj_bounds["rc"]]
-          left_possible <- all(subgrid == 0 | subgrid == i)
-        } else {
-          left_possible <- F
-        }
-        overlap_bounds <- c(lc = max(max_bounds["lc"], lj_bounds["lc"]),
-                            rc = min(max_bounds["rc"], lj_bounds["rc"]))
-        lj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
-                               rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
-        if(lj_closest_bounds["rc"] > max_bounds["rc"]){
-          lj_closest_bounds <- lj_closest_bounds - (lj_closest_bounds["rc"] - max_bounds["rc"])
-        }
-        lj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
-                                    closest_bounds = lj_closest_bounds)
-        
-        #check right justified
-        if(all(rj_bounds >= 1 & rj_bounds <= ncol(grid))){
-          subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
-                          rj_bounds["lc"] : rj_bounds["rc"]]
-          right_possible <- all(subgrid == 0 | subgrid == i)
-        } else {
-          right_possible <- F
-        }
-        overlap_bounds <- c(lc = max(max_bounds["lc"], rj_bounds["lc"]),
-                            rc = min(max_bounds["rc"], rj_bounds["rc"]))
-        rj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
-                               rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
-        if(rj_closest_bounds["rc"] > max_bounds["rc"]){
-          rj_closest_bounds <- rj_closest_bounds - (rj_closest_bounds["rc"] - max_bounds["rc"])
-        }
-        rj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
-                                    closest_bounds = rj_closest_bounds)
-        
-        #check centered
-        if(all(c_bounds >= 1 & c_bounds <= ncol(grid))){
-          subgrid <- grid[row_bounds["tr"] : row_bounds["br"],
-                          c_bounds["lc"] : c_bounds["rc"]] 
-          center_possible <- all(subgrid == 0 | subgrid == i)
-        } else {
-          center_possible <- F
-        }
-        overlap_bounds <- c(lc = max(max_bounds["lc"], c_bounds["lc"]),
-                            rc = min(max_bounds["rc"], c_bounds["rc"]))
-        c_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
-                              rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
-        if(c_closest_bounds["rc"] > max_bounds["rc"]){
-          c_closest_bounds <- c_closest_bounds - (c_closest_bounds["rc"] - max_bounds["rc"])
-        }
-        c_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
-                                   closest_bounds = c_closest_bounds)
-        
-      } else { #if we are off the bottom of the grid
-        
-        max_bounds <- c(lc = 1, rc = ncol(grid))
-        
-        #check left justified
-        if(all(lj_bounds >= 1 & lj_bounds <= ncol(grid))){
-          left_possible <- T
-        } else {
-          left_possible <- F
-          overlap_bounds <- c(lc = max(max_bounds["lc"], lj_bounds["lc"]),
-                              rc = min(max_bounds["rc"], lj_bounds["rc"]))
-          lj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
-                                 rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
-          if(lj_closest_bounds["rc"] > max_bounds["rc"]){
-            lj_closest_bounds <- lj_closest_bounds - (lj_closest_bounds["rc"] - max_bounds["rc"])
-          }
-          lj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
-                                      closest_bounds = lj_closest_bounds)
-        }
-        
-        #check right justified
-        if(all(rj_bounds >= 1 & rj_bounds <= ncol(grid))){
-          right_possible <- T
-        } else {
-          right_possible <- F
-          overlap_bounds <- c(lc = max(max_bounds["lc"], rj_bounds["lc"]),
-                              rc = min(max_bounds["rc"], rj_bounds["rc"]))
-          rj_closest_bounds <- c(lc = as.numeric(overlap_bounds["lc"]),
-                                 rc = as.numeric(overlap_bounds["lc"]) + ceiling(string_info$width) - 1)
-          if(rj_closest_bounds["rc"] > max_bounds["rc"]){
-            rj_closest_bounds <- rj_closest_bounds - (rj_closest_bounds["rc"] - max_bounds["rc"])
-          }
-          rj_closest_possible <- list(p = diff(overlap_bounds) / ceiling(string_info$width),
-                                      closest_bounds = rj_closest_bounds)
-        }
-      }
-      
-      #now shift the indices over appropriately
-      
-      #both possible
-      if(left_possible & right_possible){
-        
-        if(prev_on_the_right){
-          #right justify
-          string_info$ci <- rj_bounds["lc"]
-          justification <- "right"
-        } else{
-          #left justify
-          string_info$ci <- lj_bounds["lc"]
-          justification <- "left"
-        }
-      
-      #only one possible
-      } else if(left_possible){
-        #left justify
-        string_info$ci <- lj_bounds["lc"]
-        justification <- "left"
-        
-      } else if(right_possible){
-        #right justify
-        string_info$ci <- rj_bounds["lc"]
-        justification <- "right"
-      
-      #neither possible, but one much gets closer
-      #can also consider chopping off words
-      } else if(abs(rj_closest_possible[["p"]] - lj_closest_possible[["p"]]) > 0.25){
-        if(rj_closest_possible[["p"]] > lj_closest_possible[["p"]]){
-          #right justify
-          string_info$ci <-rj_closest_possible[["closest_bounds"]]["lc"]
-          justification <- "more_right"
-        } else {
-          #left justify
-          string_info$ci <- lj_closest_possible[["closest_bounds"]]["lc"]
-          justification <- "more_left"
-        }
-        
-      #neither possible, but both are approx. equally close
-      } else {
-        if(prev_on_the_right){
-          #right justify
-          string_info$ci <- rj_closest_possible[["closest_bounds"]]["lc"]
-          justification <- "more_right"
-        } else{
-          #left justify
-          string_info$ci <- lj_closest_possible[["closest_bounds"]]["lc"]
-          justification <- "more_left"
-        }
-      }
-      
-    }
-    
-    string_info$just <- justification
-    
-    #mark words as having been placed
-    word_used[words_that_fit] <- T
-    
-    #process grid locations
-    end_col <- ceiling(string_info$ci + string_info$width - 1)
-    end_col <- min(end_col, ncol(grid))
-    # end_row <- ceiling(string_info$ri + ifelse(all(word_used), word_h_buffered, word_h) - 1)
-    end_row <- ceiling(string_info$ri + word_h_buffered - 1)
-    string_info$end_ci <- end_col
-    string_info$end_ri <- end_row
-    
-    cols_filled <- floor(string_info$ci) : end_col
-    rows_filled <- string_info$ri : end_row
-    
-    #expand grid if necessary
-    if(end_row > nrow(grid)){
-      grid <- rbind(grid, matrix(0, ncol = ncol(grid), nrow = end_row - nrow(grid)))
-      if(verbose){cat("\n\nexpand")}
-    }
-    
-    #check all proposed spots are unoccupied
-    if(!all(grid[rows_filled, cols_filled] == 0 |
-           grid[rows_filled, cols_filled] == i)){
-      keep_going <- F
-      cat("\n\nsomething is wrong")
-      break
-    }
-    
-    #add string to image and record locations
-    word_locations[[i]] <- rbind(word_locations[[i]], string_info)
-    grid[rows_filled, cols_filled] <- i
-    
-  }
+  out <- place_sentence(dims = dims, grid = grid, v_adj_factor = v_adj_factor, v_adj_factor_sentences = v_adj_factor_sentences, 
+                        mean_word_h = mean_word_h, used = used, fast_invalid = T, word_locations = word_locations,
+                 verbose = F, n_words_per_sentence = n_words_per_sentence, cex_scale = cex_scale)
+  grid <- out$grid
+  used <- out$used
+  word_locations <- out$word_locations
+  keep_going <- out$keep_going
   
   if(!keep_going) break
   
-  #reset temporary forbidden spots in grid
-  grid[grid == -1] <- 0
   
-  #mark word as used
-  used[i] <- T
-  if(all(used)){
-    cat("\n\nWOO-HOO finished placing sentences")
-  }
 }
 
 # grid <- expand_blocks(grid)
@@ -1309,7 +1363,7 @@ concave_hulls <- lapply((1:n_sentences)[!sapply(word_locations, is.null)], funct
 })
 
 
-#### draw picture ###
+#### draw picture ####
 
 #sample colors
 background_color <- "#191b30"

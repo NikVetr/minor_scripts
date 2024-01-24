@@ -83,6 +83,9 @@ names(ds) <- c("Communication",
                "Operational_Effectiveness", 
                "Workplace_Culture_and_Environment", 
                "Free_Response")
+cat_key <- do.call(rbind, sapply(1:length(ds), function(i) cbind(colnames(ds[[i]]), names(ds)[i])))
+cat_key <- setNames(cat_key[,2], cat_key[,1])
+cat_cols <- setNames(RColorBrewer::brewer.pal(5, "Dark2"), names(ds))
 
 
 #### some quick analyses of these data ####
@@ -211,7 +214,7 @@ par(xpd = NA, mar = c(0,0,0,0))
 plot(NA,NA, xlim = c(-1,1), ylim = c(0, 1), xlab = "", ylab = "", xaxt = "n", xpd = NA, yaxt = "n", frame = F)
 sec_name <- names(ds)[si]
 sec_name_cex <- c(5, 5, 4, 4)
-text(gsub("_", " ", sec_name), y = 0.4, x = 0, cex = sec_name_cex[si], col = "#00c1b2")
+text(gsub("_", " ", sec_name), y = 0.4, x = 0, cex = sec_name_cex[si], col = cat_cols[sec_name])
 
 par(mar = c(12,5,5,2))
 likert_names <- c("N/A", "Strongly Disagree", "Disagree", "Neither Agree nor Disagree", "Agree", "Strongly Agree")
@@ -374,7 +377,7 @@ corrplot(as.matrix(item_corrmat), method = "square",
          tl.pos = "n",              
          addgrid.col = NA,          
          cl.cex = 3,                
-         mar = c(0, 0, 15, 15), cl.length = 5, cl.align.text = "l")
+         mar = c(0, 0, 15, 15), cl.length = 5, cl.align.text = "l", diag = F)
 text(latex2exp::TeX("Pearson's \\textit{r} Between Individual Items"), 
      y = mean(par("usr")[3:4]), srt = 270, cex = 5, x = par("usr")[2] - diff(par("usr")[1:2])/25, 
      col = "#00c1b2")
@@ -395,7 +398,20 @@ truncate_label <- function(label, max_length = 65) {
 }
 
 text(1:ncol(item_corrmat), ncol(item_corrmat) + 1, srt = 30, pos = 4,
-     labels = sapply(colnames(item_corrmat), truncate_label), xpd = TRUE, xpd = NA, cex = 1.5)
+     labels = sapply(colnames(item_corrmat), truncate_label), xpd = TRUE, xpd = NA, cex = 1.5,
+     col = cat_cols[cat_key[colnames(item_corrmat)]])
+legend(par("usr")[2] - diff(par("usr")[1:2])/15, par("usr")[4] + diff(par("usr")[3:4])/15, box.lwd = 0, col = cat_cols[-5], 
+       legend = gsub("_|and_Environment", " ", names(cat_cols))[-5], pch = 15, pt.cex = 3, cex = 2)
+rect(xleft = 1:ncol(item_corrmat) - 1/2, 
+     ybottom = ncol(item_corrmat):1 - 1/2, 
+     xright = 1:ncol(item_corrmat) + 1/2, 
+     ytop = ncol(item_corrmat):1 + 1/2,
+     col = cat_cols[cat_key[colnames(item_corrmat)]], border = "white")
+text(1:ncol(item_corrmat), ncol(item_corrmat):1, 
+     labels = sapply(colnames(item_corrmat), function(x) match(x, colnames(ds[[cat_key[x]]]))), 
+     col = "white", cex = 3)
+
+#histograms for average person-rating, all ratings, item-mean correlations
 
 
 # Generate the corrplot with the custom color palette
@@ -406,7 +422,7 @@ corrplot(as.matrix(person_corrmat), method = "square",
          tl.pos = "n",              
          addgrid.col = NA,          
          cl.cex = 3,                
-         mar = c(10, 0, 5, 15), cl.length = 5, cl.align.text = "l")
+         mar = c(10, 0, 5, 15), cl.length = 5, cl.align.text = "l", diag = F)
 text(latex2exp::TeX("Pearson's \\textit{r} Between Individual Respondents"), 
      y = mean(par("usr")[3:4]), srt = 270, cex = 5, x = par("usr")[2] - diff(par("usr")[1:2])/25, 
      col = "#00c1b2")
@@ -467,7 +483,6 @@ text(x = item_90CI_betabinom_locs[1], y = mean(ybox_locs),
 text(x = item_90CI_betabinom_locs[2] + 0.25, y = mean(ybox_locs), 
      labels = latex2exp::TeX(paste0("$95^{th}$ posterior predictive quantile of score")), pos = 2,
      srt = 90)
-
 
 dev.off()
 

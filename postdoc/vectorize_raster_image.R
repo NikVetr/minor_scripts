@@ -836,7 +836,8 @@ discretize_image_2 <- function(img, ncol_range = 3:10, slow_clustering = F, n_to
     dbi_exploded_cl <- (1:length(pres_cl))[match(exploded_cls, pres_cl)]
     
     davies_bouldin_index <- clusterSim::index.DB(transcols, dbi_exploded_cl)$DB
-    
+    #exploded_cls is the vector of cluster assignments for all (unweighted) input obs 
+    #exploded_cents is the k
     #return values
     return(list(cluster_inds = exploded_cls, centers = exploded_cents, dbi = davies_bouldin_index, k = k))
     

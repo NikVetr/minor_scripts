@@ -13,6 +13,7 @@ def transcribe_audio(audio_path, model_size="medium"):
 
 def extract_audio(video_path, audio_path):
     command = f"ffmpeg -i {video_path} -vn -acodec libmp3lame -q:a 2 {audio_path}"
+    #command = f"ffmpeg -i {video_path} -vn -acodec copy -t 150 {audio_path}"
 
     subprocess.call(command, shell=True)
 

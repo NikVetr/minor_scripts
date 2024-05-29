@@ -387,3 +387,9 @@ est_sigmas
 mean(samps_multilevel$sigma_a)
 mean(samps_multilevel$sigma_b)
 est_sigmas
+
+
+#need to subtract out posterior uncertainty -- whoops!
+#see file '~/scripts/minor_scripts/postdoc/scale_mixture_variances.R' for derivation + demonstration
+
+#

@@ -27,7 +27,7 @@ rlkj <- function (K, eta = 1) {
 #### OK, now let's have it do multi-tissues, one gene, same loci affecting everything ####
 
 ## specify simulation parameters
-n_y <- 10 #number of genes (or tissues)
+n_y <- 5 #number of genes (or tissues)
 bs_wanted_var <- 20 #variance of tissue-specific effect sizes
 bs_wanted = round(rnorm(n = n_y,0,sqrt(bs_wanted_var)),2) #effect of each gene expression on z, the phenotype; if high, most of genotype signal should come from here
 # bs_0s <- sample(1:n_y, size = round(n_y/2), replace = F) #simulate spike and slab
@@ -127,6 +127,8 @@ GWAS_coef <- sapply(1:n_rep, function(li) lm(z2 ~ x2[,li])$coefficients[2])
 # Cov_x1 <- cov(x1) * (n_obs[1] - 1) / n_obs[1] + diag(n_rep) / n_obs[1]
 Cov_x1 <- corpcor::cov.shrink(x1)
 Cov_x2 <- corpcor::cov.shrink(x2)
+Cov_x1 <- cov(x1)
+Cov_x2 <- cov(x2)
 
 Cov_x1_y <- eQTL_coef %*% diag(apply(x1, 2, var))
 eQTL_coef <- t(pracma::pinv(Cov_x1) %*% t(Cov_x1_y))

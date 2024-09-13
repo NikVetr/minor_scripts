@@ -36,7 +36,7 @@ sds <- rexp(n_dim, rate = 0.5)
 # mu <- c(rep(0, n_dim-1), rep(5, 1))
 
 Sig <- diag(sds) %*% R %*% diag(sds)
-N <- 150
+N <- 50
 dat <- mvrnorm(N, mu, Sig)
 
 # Randomly remove some data
@@ -60,9 +60,9 @@ data {
     int<lower=0> ncol;
     int<lower=0> n_comp; // Number of non-missing values
     int<lower=0> n_miss; // Number of missing values
-    real dat_complete[n_comp];   // Vector of non-missing values
-    int ind_pres[n_comp, 2];     // Matrix (row, col) of non-missing value indices
-    int ind_miss[n_miss, 2];     // Matrix (row, col) of missing value indices
+    vector[n_comp] dat_complete;   // Vector of non-missing values
+    array[n_comp, 2] int ind_pres;     // Matrix (row, col) of non-missing value indices
+    array[n_miss, 2] int ind_miss;     // Matrix (row, col) of missing value indices
     
 }
 parameters {
@@ -73,12 +73,12 @@ parameters {
     vector<lower=0>[ncol] sigma; 
     
     // missing values
-    real ymiss[n_miss];      
+    vector[n_miss] ymiss;
     
 }
 transformed parameters {
 
-    vector[ncol] y[nrow];
+    matrix[nrow, ncol] y;
     // Fill y with non-missing values 
     for(n in 1:n_comp) {
         y[ind_pres[n,1],ind_pres[n,2]] = dat_complete[n];
@@ -101,7 +101,10 @@ model {
 
     sigma ~ exponential(1); // prior on the standard deviations
     L ~ lkj_corr_cholesky(2);
-    y ~ multi_normal_cholesky(mu, diag_pre_multiply(sigma, L));
+    for(i in 1:nrow){
+      y[i,] ~ multi_normal_cholesky(mu, diag_pre_multiply(sigma, L));
+    }
+
     
 }
 generated quantities {
@@ -208,24 +211,28 @@ abline(0,1, col = adjustcolor(2,0.5), lty = 2, lwd = 2)
 
 #### implementing a basic multivariate ordinal probit ####
 
-n_dim <- 40
+n_dim <- 10
 mu <- rnorm(n_dim, 0, sd = 3)
 R <- rlkj(n_dim, 1)
 sds <- rexp(n_dim, rate = 0.5)
 Sig <- diag(sds) %*% R %*% diag(sds)
-N <- 200
+N <- 50
 dat <- mvrnorm(N, mu, Sig)
 
 # specify and apply cutpoints
-n_cut <- 5
+n_cut <- 1
 cutpoints <- cumsum(c(0,rexp(n_cut-1, 1)))
 # cutpoints <- c(0,1:(n_cut-1)/n_cut*2)
 gthan <- lapply(1:n_cut, function(ci) dat > cutpoints[ci])
 dat_discr <- gthan[[1]]
-for(i in 2:n_cut){dat_discr <- dat_discr + gthan[[i]]}
+if(n_cut >= 2){
+  for(i in 2:n_cut){dat_discr <- dat_discr + gthan[[i]]}  
+} else {
+  dat_discr <- 0 + dat_discr
+}
 
 # unobserve some fraction of the data
-frac_missing <- 0.1
+frac_missing <- 0.0
 n_miss <- N*n_dim*frac_missing
 miss <- sample.int(prod(dim(dat)), size = n_miss)
 dat_discr[miss] <- NA
@@ -249,11 +256,11 @@ data {
     int<lower=0> n_min; // Number of minimum values (so only bounded above)
     int<lower=0> n_max; // Number of maximum values (so only bounded below)
     int<lower=0> n_miss; // Number of missing values (so unbounded)
-    int<lower=0,upper=n_cut> dat_inter[n_inter]; // the intermediate states
-    int ind_inter[n_inter, 2]; // the indices of obs. in the data matrix w/ intermediate states
-    int ind_miss[n_miss, 2]; // the indices of missing obs. in the data matrix
-    int ind_min[n_min, 2]; // the indices of obs. in the data matrix w/ minimum states
-    int ind_max[n_max, 2]; // the indices of obs. in the data matrix w/ maximum states
+    array[n_inter] int<lower=0,upper=n_cut> dat_inter; // the intermediate states
+    array[n_inter, 2] int ind_inter; // the indices of obs. in the data matrix w/ intermediate states
+    array[n_miss, 2] int ind_miss; // the indices of missing obs. in the data matrix
+    array[n_min, 2] int ind_min; // the indices of obs. in the data matrix w/ minimum states
+    array[n_max, 2] int ind_max; // the indices of obs. in the data matrix w/ maximum states
 }
 
 parameters {
@@ -266,17 +273,17 @@ parameters {
     positive_ordered[n_cut-1] later_cutpoints;
     
     // liabilities with different bounds
-    real<lower=0,upper=1> y_inter[n_inter]; // corresponds to proportion within interval between cutpoints
-    real<lower=0> y_max[n_max]; // corresponds to distance above the very last cutpoint
-    real<upper=0> y_min[n_min]; // first cutpoint is later constrained to 0
-    real ymiss[n_miss];
+    vector<lower=0,upper=1>[n_inter] y_inter; // corresponds to proportion within interval between cutpoints
+    vector<lower=0>[n_max] y_max; // corresponds to distance above the very last cutpoint
+    vector<upper=0>[n_min] y_min; // first cutpoint is later constrained to 0
+    vector[n_miss] ymiss;
 }
 
 transformed parameters {
     // construct full cutpoints vector, constraining location of first cutpoint to 0
     vector<lower=0>[n_cut] cutpoints = append_row(0, later_cutpoints);
 
-    vector[ncol] liabilities[nrow];
+    matrix[nrow, ncol] liabilities;
     // fill in liability matrix
     for(n in 1:n_inter) {
         liabilities[ind_inter[n,1],ind_inter[n,2]] = cutpoints[dat_inter[n]] + (cutpoints[dat_inter[n]+1] - cutpoints[dat_inter[n]]) * y_inter[n];
@@ -299,11 +306,13 @@ model {
     //priors & augmented likelihood
     sigma ~ exponential(0.5);
     L ~ lkj_corr_cholesky(2);
-    liabilities ~ multi_normal_cholesky(mu, diag_pre_multiply(sigma, L));
+    for(i in 1:nrow){
+      liabilities[i,] ~ multi_normal_cholesky(mu, diag_pre_multiply(sigma, L));
+    }
     
     //jacobian adjustment for non-linear cutpoint transformation
     for(n in 1:n_inter) {
-      target += log(fabs(cutpoints[dat_inter[n]+1] - cutpoints[dat_inter[n]]));
+      target += log(abs(cutpoints[dat_inter[n]+1] - cutpoints[dat_inter[n]]));
     }
 }
 
@@ -333,7 +342,9 @@ if(!exists("curr_stan_program") || stan_program != curr_stan_program){
 mod <- cmdstan_model(f)
 
 #fit model
-out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = d, parallel_chains = 4, adapt_delta = 0.97, max_treedepth = 20, refresh = 10, init = 0.1)
+out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, data = d, 
+                  parallel_chains = 4, adapt_delta = 0.98, max_treedepth = 15, refresh = 10, init = 0.1)
+# out <- mod$pathfinder(d, init = 0.1)
 # out <- mod$variational(data = d, iter = 1E5)
 summ <- out$summary()
 summ[order(summ$ess_bulk),]
@@ -362,3 +373,4 @@ mean_corr_mat <- sapply(1:nrow(corr_mats_array), function(ri) sapply(1:ncol(corr
 plot(R[upper.tri(R)], mean_corr_mat[upper.tri(mean_corr_mat)], ylab = "posterior means for params",
      main = paste0("Pearson Correlation = ", round(cor(R[upper.tri(R)], mean_corr_mat[upper.tri(mean_corr_mat)]), 2)))
 abline(0,1, col = adjustcolor(2,0.5), lty = 2, lwd = 2)
+

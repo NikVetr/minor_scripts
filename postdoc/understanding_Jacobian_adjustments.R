@@ -44,7 +44,7 @@ model {
     // priors
     a ~ std_normal();
     c ~ normal(0,sqrt(2));
-    target += log(fabs(1));
+    target += log(abs(1));
 }
 '
 
@@ -77,7 +77,7 @@ model {
     // priors
     a ~ std_normal();
     c ~ normal(0,sqrt(2));
-    target += log(fabs(a-b));
+    target += log(abs(a-b));
 }
 '
 
@@ -106,7 +106,7 @@ transformed parameters {
 }
 model {
     b ~ chi_square(1);
-    target += log(fabs(2*a));
+    target += log(abs(2*a));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){
@@ -123,8 +123,8 @@ summ[order(summ$ess_bulk),]
 #check inference
 samps <- data.frame(as_draws_df(out$draws()))
 pairs(samps[,c("a", "b")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
-mean(rchisq(1E4, 1))
-var(rchisq(1E4, 1))
+mean(rchisq(1E5, 1))
+var(rchisq(1E5, 1))
 
 #product of two parameters? see https://www.tamaspapp.eu/post/jacobian-chain/
 stan_program <- '
@@ -133,11 +133,12 @@ parameters {
     real<lower=0> b;
 }
 transformed parameters {
-    real<lower=0> c = a*b;
+    real<lower=0> c = a * b;
 }
 model {
     a ~ lognormal(0, 1);
     c ~ lognormal(0, sqrt(2));
+    target += log(abs(a - b));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){
@@ -169,7 +170,7 @@ model {
     a ~ std_normal();
     b ~ uniform(-1000000, 1000000);
     c ~ std_normal();
-    target += log(fabs(a));
+    target += log(abs(a));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){
@@ -204,7 +205,7 @@ model {
     a ~ std_normal();
     b ~ std_normal();
     d ~ std_normal();
-    target += log(fabs(a*b));
+    target += log(abs(a*b));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){

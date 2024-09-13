@@ -135,7 +135,7 @@ parameters{
   vector[d] logit_p;
   real<lower=0> sd_b;
   real<lower=0> sd_e;
-  real<lower=0> sd_p;
+  //real<lower=0> sd_p;
   real mu_b;
   real mu_p;
 }
@@ -146,13 +146,14 @@ model{
   logit_p ~ std_normal();
   sd_b ~ std_normal();
   sd_e ~ std_normal();
-  sd_p ~ std_normal();
+  //sd_p ~ std_normal();
   mu_b ~ std_normal();
   mu_p ~ std_normal();
 
   // define parameters with sparsity
   //vector[d] p = inv_logit(mu_p * 2 - 2 + logit_p * sd_p * 5);
-  vector[d] p = 1 / (1 + exp(-100 * (inv_logit(mu_p * 2 - 2 + logit_p * sd_p * 5) - 0.5)));
+  //vector[d] p = 1 / (1 + exp(-100 * (inv_logit(mu_p * 2 - 2 + logit_p * sd_p * 5) - 0.5)));
+  vector[d] p = 1 / (1 + exp(-100 * (inv_logit(mu_p * 2 - 2 + logit_p) - 0.5)));
   vector[d] b = mu_b + b_raw .* p * sd_b;
 
   //likelihood
@@ -172,8 +173,8 @@ fit <- mod$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3,
 
 #check convergence
 # summ <- fit$summary()
-print(summ[order(summ$ess_bulk),])
-print(summ[order(summ$rhat, decreasing = T),])
+# print(summ[order(summ$ess_bulk),])
+# print(summ[order(summ$rhat, decreasing = T),])
 
 #extract samples and inspect
 samps <- data.frame(as_draws_df(fit$draws()))
@@ -207,7 +208,6 @@ ppfits <- parallel::mclapply(seq_along(sample_indices), function(i){
 
 pp <- do.call(rbind, lapply(ppfits, function(x) x$p))
 pb <- do.call(rbind, lapply(ppfits, function(x) x$b))
-
 
 #plot top hits
 mean_mix_params <- apply(pp, 2, mean)

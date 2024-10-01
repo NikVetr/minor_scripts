@@ -395,7 +395,8 @@ my_ridgeline <- function(
     alternate_border_col = NULL,
     ylabs = T,
     panel_coords = NULL,
-    order_inputs = NULL
+    order_inputs = NULL, 
+    resc_to_maxh = F
 ) {
   
   # Filter out bins with low sample size
@@ -471,8 +472,17 @@ my_ridgeline <- function(
     
     ad <- ad[ad_subset, ]
     scale_vertical_adj <- scale_vertical / sum(dy(ad$y[-1] + diff(ad$y)/2) * diff(dx(ad$x)))
+    if(resc_to_maxh){
+      max(ad$y)
+      y_coords <- dy(i + c(ad$y, rep(0, nrow(ad))) / max(ad$y) * scale_vertical_adj)
+    } else {
+      y_coords <- dy(i + c(ad$y, rep(0, nrow(ad))) * scale_vertical_adj)
+    }
+    
+    print(max(y_coords))
+    
     polygon(x = dx(c(ad$x, rev(ad$x))),
-            y = dy(i + c(ad$y, rep(0, nrow(ad))) * scale_vertical_adj), 
+            y = y_coords, 
             border = border_cols[i], col = color_palette[i])
     
     lbs[i] <- ad$x[1]

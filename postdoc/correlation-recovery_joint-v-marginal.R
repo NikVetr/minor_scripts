@@ -28,9 +28,8 @@ D <- 15
 R <- rlkj(D, 1)
 # r <- 0.5
 # R <- diag(D) + r - diag(D) * r
-N <- 20
+N <- 50
 y <- mvrnorm(N, rep(0,D), R)
-cor(y)
 
 # construct data object
 dat <- list(D = D,
@@ -77,27 +76,27 @@ stan_program_fisher_z <- paste0(readLines(stan_loc_fisher_z), collapse = "\n")
 mod_fisher_z <- cmdstan_model(stan_loc_fisher_z)
 
 #fit model
-fit_joint <- mod_joint$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, 
-                            parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
+# fit_joint <- mod_joint$sample(chains = 4, iter_sampling = 2E2, iter_warmup = 1E3, data = dat, 
+#                             parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
+# 
+# fit_marg <- mod_marg$sample(chains = 4, iter_sampling = 2E2, iter_warmup = 1E3, data = dat, 
+#                             parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
+# 
+# fit_marg_fb <- mod_marg_fb$sample(chains = 4, iter_sampling = 2E2, iter_warmup = 1E3, data = dat, 
+#                                   parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
 
-fit_marg <- mod_marg$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, 
-                            parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
-
-fit_marg_fb <- mod_marg_fb$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat, 
-                                  parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
-
-fit_fisher_z <- mod_fisher_z$sample(chains = 4, iter_sampling = 1E3, iter_warmup = 1E3, data = dat_fisher_z, 
+fit_fisher_z <- mod_fisher_z$sample(chains = 4, iter_sampling = 2E2, iter_warmup = 1E3, data = dat_fisher_z, 
                                   parallel_chains = 4, adapt_delta = 0.9, max_treedepth = 10, refresh = 100, init = 0.1)
 
 #mcmc diagnostics
-summ_joint <- fit_joint$summary("R")
-summ_joint[order(summ$ess_bulk),]
-
-summ_marg <- fit_marg$summary("R")
-summ_marg[order(summ_marg$ess_bulk),]
-
-summ_marg_fb <- fit_marg_fb$summary("R")
-summ_marg_fb[order(summ_marg_fb$ess_bulk),]
+# summ_joint <- fit_joint$summary("R")
+# summ_joint[order(summ_joint$ess_bulk),]
+# 
+# summ_marg <- fit_marg$summary("R")
+# summ_marg[order(summ_marg$ess_bulk),]
+# 
+# summ_marg_fb <- fit_marg_fb$summary("R")
+# summ_marg_fb[order(summ_marg_fb$ess_bulk),]
 
 summ_fisher_z <- fit_fisher_z$summary("R")
 summ_fisher_z[order(summ_fisher_z$ess_bulk),]
@@ -117,29 +116,29 @@ samples <- list(
 
 
 # process samples
-post <- lapply(setNames(names(samples), names(samples)), function(samps_name){
-  
-  #retrieve object
-  print(samps_name)
-  samps <- samples[[samps_name]]
-  
-  #munge to array 
-  corr_mats <- lapply(1:nrow(samps), function(ri) 
-    matrix(c(as.matrix(samps[ri, grep("R", colnames(samps))])), ncol = D))
-  corr_mats_array <- do.call(abind::abind, c(corr_mats, list(along = 3)))
-  
-  #compute posterior summaries
-  mean_corr_mat <- apply(corr_mats_array, c(1,2), function(x) mean(x))
-  var_corr_mat <- apply(corr_mats_array, c(1,2), function(x) var(x))
-  q_corr_mat <- apply(combn(D, 2), 2, function(i){
-    mean(corr_mats_array[i[1], i[2],] < R[i[1], i[2]])
-  })
-  
-  return(list(mean_R = mean_corr_mat[upper.tri(R)], 
-              var_R = var_corr_mat[upper.tri(R)], 
-              q_R = q_corr_mat))
-  
-})
+# post <- lapply(setNames(names(samples), names(samples)), function(samps_name){
+#   
+#   #retrieve object
+#   print(samps_name)
+#   samps <- samples[[samps_name]]
+#   
+#   #munge to array 
+#   corr_mats <- lapply(1:nrow(samps), function(ri) 
+#     matrix(c(as.matrix(samps[ri, grep("R", colnames(samps))])), ncol = D))
+#   corr_mats_array <- do.call(abind::abind, c(corr_mats, list(along = 3)))
+#   
+#   #compute posterior summaries
+#   mean_corr_mat <- apply(corr_mats_array, c(1,2), function(x) mean(x))
+#   var_corr_mat <- apply(corr_mats_array, c(1,2), function(x) var(x))
+#   q_corr_mat <- apply(combn(D, 2), 2, function(i){
+#     mean(corr_mats_array[i[1], i[2],] < R[i[1], i[2]])
+#   })
+#   
+#   return(list(mean_R = mean_corr_mat[upper.tri(R)], 
+#               var_R = var_corr_mat[upper.tri(R)], 
+#               q_R = q_corr_mat))
+#   
+# })
 
 #recover means
 true_R <- R[upper.tri(R)]
@@ -178,6 +177,31 @@ pairs(vars,
       upper.panel = panel.smooth.abline,
       diag.panel = NULL)
 
+#### error quantiles ####
+#does quantile in fisher z estimates correspond to estimation error?
+p_gr0 <- function(x) mean(x>0)
+q_sampcor_fisherz <- apply(samps_fisher_z[,-c(D^2+1:3)] - c(cor(y)), 2, p_gr0)
+mean_sampcor_fisherz <- apply(samps_fisher_z[,-c(D^2+1:3)] - c(cor(y)), 2, mean)
+mean_fisherz <- apply(samps_fisher_z[,-c(D^2+1:3)], 2, mean)
+
+R_inds <- which(upper.tri(R), arr.ind = T)
+err_sampcor <- cor(y)[R_inds] - R[R_inds]
+
+coef_names <- apply(R_inds, 1, function(x) paste0("R.", x[1], ".", x[2], "."))
+par(mar = c(5,5,3,3))
+plot(q_sampcor_fisherz[coef_names], err_sampcor, 
+     xlab = "quantile of sample correlation in error-propagated joint distribution", 
+     ylab = "error of sample correlation from true correlation")
+abline(-0.5,1,col=2,lty=2, lwd = 2)
+abline(h=0, col= adjustcolor(1,0.25),lty=2, lwd = 2)
+abline(v=0.5, col= adjustcolor(1,0.25),lty=2, lwd = 2)
+plot(mean_sampcor_fisherz[coef_names], err_sampcor)
+plot(mean_fisherz[coef_names], cor(y)[R_inds])
+abline(0,1)
+
+breaks = -10:10/10
+hist(mean_fisherz[coef_names], breaks = breaks, col = adjustcolor(4,0.5), ylim = c(0, choose(D, 2)))
+hist(cor(y)[R_inds], add = T, col = adjustcolor(2,0.5), breaks = breaks)
 
 #now look at calibration
 par(mfrow = c(length(qs), 1))

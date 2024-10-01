@@ -42,12 +42,13 @@ dim_spacing <- c(w = 0.72, h = 0.19)
 start_loc <- c(x = 1.7, y = 1.56)
 dim_plot <- c(w = 23.77, h = 13.0)
 dim_name <- dim_unit - dim_unit["w"] / 5
-degree_name_overlap <- 0.3
+degree_name_overlap <- 0.4
 name_cex_ratio_base <- 0.55
 name_cex_ratio_factor <- 1.1
 cex_scale <- 0.95
-vws_scale <- 0.5
-vws_adj_yqpgj <- 1.75
+vws_scale <- 0.6
+vws_adj_yqpgj <- 1.5
+twist_ratio_xy <- 3
 
 #construct matrix of centers
 centers <- as.matrix(expand.grid(1:dim_grid[1], 1:dim_grid[2])) - 1
@@ -67,6 +68,8 @@ name_metadata <- lapply(labnames_list, function(name){
   nh <- strheight(paste0(name, "AygT", collapse = "\n"), "inches")
   has_yqpgj <- any(strsplit(name[1], "")[[1]] %in% strsplit("yqpgj", "")[[1]])
   vws <- (nh - sum(nhs)) * vws_scale * ifelse(has_yqpgj, vws_adj_yqpgj, 1)
+  hws <- strwidth(" ", "inches", family = font_name)
+  
   nn <- length(name)
   
   if(nchar(name[2]) > 8){
@@ -87,6 +90,7 @@ name_metadata <- lapply(labnames_list, function(name){
   new_nw <- new_cex * nw
   new_nhs <- new_cex * nhs
   new_vws <- mean(new_cex * vws)
+  new_hws <- mean(new_cex * hws)
   new_nh <- sum(new_nhs) + new_vws * (nn - 1)
   
   #find displacements to these dimensions
@@ -133,7 +137,10 @@ name_metadata <- lapply(labnames_list, function(name){
   
   #record other useful info
   out$h <- new_nhs
-  out$ws <- new_vws
+  out$vws <- new_vws
+  out$hws <- new_hws
+  
+  #now let's try to get the DNA metadata in there too
   
   return(out)
   
@@ -151,8 +158,9 @@ plot(1,1, col = "white", xlab = "", ylab = "", xaxt = "n", yaxt = "n", frame = F
      ylim = c(0, dim_plot["h"])
 )
 
-for(i in 1:prod(dim_grid)){
-  
+# for(i in 1:prod(dim_grid)){
+for(i in 1:10){
+    
   cat(paste0(i, " "))
   
   #plot rects for troubleshooting
@@ -160,22 +168,25 @@ for(i in 1:prod(dim_grid)){
        ybottom = centers[i,"y"] - dim_unit["h"]/2, 
        xright = centers[i,"x"] + dim_unit["w"]/2, 
        ytop = centers[i,"y"] + dim_unit["h"]/2, border = "grey20")
-  # 
-  # rect(xleft = centers[i,"x"] - dim_name["w"]/2, 
-  #      ybottom = centers[i,"y"] - dim_name["h"]/2, 
-  #      xright = centers[i,"x"] + dim_name["w"]/2, 
-  #      ytop = centers[i,"y"] + dim_name["h"]/2, lty = 2, border = "grey20")
-  # 
+# 
+#   rect(xleft = centers[i,"x"] - dim_name["w"]/2,
+#        ybottom = centers[i,"y"] - dim_name["h"]/2,
+#        xright = centers[i,"x"] + dim_name["w"]/2,
+#        ytop = centers[i,"y"] + dim_name["h"]/2, lty = 2, border = "grey20")
+
 
   #plot names
   if(i <= length(labnames_list)){
     
     #write name
     for(j in 1:length(labnames_list[[i]])){
-      text(x = centers[i,1] + name_metadata[[i]]$dx[j], 
-           y = centers[i,2] + name_metadata[[i]]$dy[j], 
-           labels = name_metadata[[i]]$text[j], family = font_name, 
-           cex = name_metadata[[i]]$cex[j], xpd = NA)
+      
+      nm <- name_metadata[[i]]
+      
+      text(x = centers[i,1] + nm$dx[j], 
+           y = centers[i,2] + nm$dy[j], 
+           labels = nm$text[j], family = font_name, 
+           cex = nm$cex[j], xpd = NA, col = 1)
     }
     
     #draw DNA embellishment
@@ -186,39 +197,35 @@ for(i in 1:prod(dim_grid)){
     #amplitude is 1 by default, so total thickness of DH is 2
     
     #then calculate length of line to underline the surname
+  
+    nf_width <- nm$rb[2] - nm$lb[1] #nf = namefield
+    prop_surname <- (nm$w[2] + nm$hws[2]*1.5) / nf_width
+    tl_xy_DNA <- c(centers[i,1] + nm$lb[1], centers[i,2] + nm$dy[2] + nm$h[2]/2)
     
-    if(i %in% c(1:100)){
-      nf_width <- name_metadata[[i]]$rb[2] - name_metadata[[i]]$lb[1] #nf = namefield
-      prop_surname <- name_metadata[[i]]$w[2] * 
-        (nchar(name_metadata[[i]]$text[2]) + 0.75) / nchar(name_metadata[[i]]$text[2]) / 
-        nf_width
-      helix_width <- (1-prop_surname) * nf_width * 1.1
-      helix_height <- (name_metadata[[i]]$h[2] / 2 + name_metadata[[i]]$ws[2]) * 1.1
-      if(helix_width > nf_width / 20){
-        ntwists <- max(floor(helix_width / helix_height / (pi) * 2), 1)
-        dh_bounds <- c(-pi/2, -pi/2 + pi * (ntwists))
-        extend_straight_by <- diff(dh_bounds) * prop_surname / (1-prop_surname) + nf_width / 5
-        box_dim <- c(nf_width,
-                     name_metadata[[i]]$h[2] + name_metadata[[i]]$ws[2])
-        realized_helix_height <- nf_width / (diff(dh_bounds) + extend_straight_by) * 2
-        tweaked_amplitude <- helix_height / realized_helix_height
-        dna_center <- centers[i,] + 
-          c(0, 
-            name_metadata[[i]]$dy[2] - 
-            name_metadata[[i]]$h[2]/10)
-        draw_DNA(target_center = dna_center, dh_bounds = dh_bounds, amplitude = tweaked_amplitude,
-                 box_dim = box_dim, rot = 90, strand_thickness = 0.01, 
-                 extend_straight = ifelse(ntwists %% 2 == 0, 2, 1), 
-                 extend_straight_by = extend_straight_by)  
-      }
-      # if(i==60) break
-    }
-      
+    #get initial bounding box dimensions and # of twists
+    box_dim <- c(nf_width - nm$w[2] - nm$hws[2] * 1.5, nm$h[2] + nm$vws[2])
+    ntwists_raw <- (box_dim[1] / box_dim[2]) / twist_ratio_xy * 2
+    ntwists <- max(round(ntwists_raw), 1)
+    dh_bounds <- c(-pi/2, -pi/2 + pi * ntwists)
+    box_dim[1] <- ntwists * box_dim[2] * twist_ratio_xy / 2
+    
+    #adjust name size for 
+    
+    #find how far to extend straight line
+    extend_straight_by <- nf_width - box_dim[1]
+    
+    draw_DNA(dh_bounds = dh_bounds, amplitude = 1,
+             rot = 90, strand_thickness = 0.01, 
+             extend_straight = ifelse(ntwists %% 2 == 0, 2, 1), 
+             extend_straight_by = extend_straight_by, col = 1, 
+             topleft_xy = tl_xy_DNA, forced_box = box_dim, box_DNA = T, 
+             straight_extension_real_units = T)
+    
+    
+    
+  
   }
   
-  
-  
-    
 }
 
 dev.off()

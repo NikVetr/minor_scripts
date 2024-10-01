@@ -1,18 +1,18 @@
 library(cmdstanr)
 library(posterior)
-library(bridgesampling)
-
 #### sim data and fit freq mod ####
 
 #specify high level parameters
-standardize_vars <- T
+standardize_vars <- F
 p = 50
 n = 200
 prop_yvar = 0.5 #proportion non-aleatoric variance (ie, not in error term)
 prop_zvar = 0.2
 sd_b_xz_scale <- 0.2
 sd_b_xz = sd_b_xz_scale / sqrt(p)
-b_yz = 0
+b_yz = -4
+sd_u_scale <- 0 #relative confounding effect of unobserved_variable
+sd_u <- sd_u_scale * sqrt(p)
 
 #set stage to simulate correlated counts in {0,1,2}
 rop <- 0.8
@@ -37,6 +37,13 @@ x2 <- Reduce("+", lapply(1:2, function(i){
   apply(probs, c(1,2), function(prob) rbinom(n = 1, prob = prob, size = 1))  
 }))
 
+x3 <- Reduce("+", lapply(1:2, function(i){
+  liabs <- matrix(rnorm(p * n), nrow = n) %*% cholR
+  liabs <- t(t(liabs) + p_liab)
+  probs <- pnorm(liabs)
+  apply(probs, c(1,2), function(prob) rbinom(n = 1, prob = prob, size = 1))  
+}))
+
 #further randomize effects of x?
 # x1 <- x1 %*% matrix(rnorm(p^2), p, p)
 # x2 <- x2 %*% matrix(rnorm(p^2), p, p)
@@ -50,16 +57,18 @@ b_xz <- rnorm(p) * sd_b_xz #when sd_b_xz = 0, no horizontal pleiotropy
 
 #simulate y for pop 1
 mu_y1 <- c(x1 %*% t(t(b_xy)))
-e_y1 <- rnorm(n) * c(sqrt(var(mu_y1) / prop_yvar * (1-prop_yvar)))
-y1 <- mu_y1 + e_y1
+u1 <- rnorm(n) * sd_u
+e_y1 <- rnorm(n) * c(sqrt(var(mu_y1 + u1) / prop_yvar * (1-prop_yvar)))
+y1 <- mu_y1 + u1 + e_y1
 
 #simulate y and z for pop 2
 mu_y2 <- c(x2 %*% t(t(b_xy)))
-e_y2 <- rnorm(n) * c(sqrt(var(mu_y2) / prop_yvar * (1-prop_yvar)))
-y2 <- mu_y2 + e_y2
+u2 <- rnorm(n) * sd_u
+e_y2 <- rnorm(n) * c(sqrt(var(mu_y2 + u2) / prop_yvar * (1-prop_yvar)))
+y2 <- mu_y2 + u2 + e_y2
 mu_z2 <- y2 * b_yz + c(x2 %*% t(t(b_xz)))
-e_z2 <- rnorm(n) * c(sqrt(var(mu_z2) / prop_zvar * (1-prop_zvar)))
-z2 <- mu_z2 + e_z2
+e_z2 <- rnorm(n) * c(sqrt(var(mu_z2 + u2) / prop_zvar * (1-prop_zvar)))
+z2 <- mu_z2 + u2 + e_z2
 
 #standardize variables?
 if(standardize_vars){
@@ -184,10 +193,11 @@ summary(lm(fit_xz_chol$Estimate ~ 1 + fit_xy_chol$Estimate))$coefficients[2,1:2]
 
 
 #### check true PCR coefs? ####
-b_xy_PCs <- summary(lm(mu_y1 ~ x1_PCs))$coefficients[-1,1]
-b_xz_PCs <- summary(lm(mu_z2 ~ y2 + x2_PCs))$coefficients[-(1:2),1]
-b_yz_PCs <- summary(lm(mu_z2 ~ y2 + x2_PCs))$coefficients[2,1]
-b_xz_noy_pcs <- summary(lm(mu_z2 ~ x2_PCs))$coefficients[-1,1]
+b_xy_PCs <- solve(t(x1_PCs) %*% x1_PCs) %*% t(x1_PCs) %*% mu_y1
+b_xz_PCs <- (solve(t(cbind(y2, x2_PCs)) %*% cbind(y2, x2_PCs)) %*% t(cbind(y2, x2_PCs)) %*% mu_z2)[-1]
+b_yz_PCs <- (solve(t(cbind(y2, x2_PCs)) %*% cbind(y2, x2_PCs)) %*% t(cbind(y2, x2_PCs)) %*% mu_z2)[1]
+b_xz_noy_pcs <- solve(t(x2_PCs) %*% x2_PCs) %*% t(x2_PCs) %*% mu_z2
+solve(t(x2_PCs) %*% x2_PCs) %*% t(x2_PCs) %*% mu_z2
 plot(1:p, b_xy_PCs)
 plot(b_xz_noy_pcs, b_xy_PCs)
 summary(lm(b_xz_noy_pcs ~ b_xy_PCs))$coefficients[2,]
@@ -196,6 +206,51 @@ plot(summary(lm(mu_z2 ~ x2))$coefficients[-1,1], summary(lm(mu_y1 ~ x1))$coeffic
 plot(summary(lm(mu_z2 ~ x2_PCs))$coefficients[-1,1], summary(lm(mu_y1 ~ x1_PCs))$coefficients[-1,1], col = NA)
 text(summary(lm(mu_z2 ~ x2_PCs))$coefficients[-1,1], summary(lm(mu_y1 ~ x1_PCs))$coefficients[-1,1], labels = 1:p)
 hist(summary(lm(mu_z2 ~ x2_PCs))$coefficients[-1,1], breaks = 100)
+
+#### bidirectional inference conditioning! ####
+fishers_method <- function(pvalues) {
+  test_statistic <- -2 * sum(log(pvalues))
+  degrees_of_freedom <- 2 * length(pvalues)
+  combined_pvalue <- pchisq(test_statistic, degrees_of_freedom, lower.tail = FALSE)
+  return(combined_pvalue)
+}
+
+#first in the same population
+par(mfrow = c(2,1))
+yz_pvals <- summary(lm(z2 ~ x2 + y2))$coefficients[2:(p+1),4]
+zy_pvals <- summary(lm(y2 ~ x2 + z2))$coefficients[2:(p+1),4]
+hist(yz_pvals)
+hist(zy_pvals)
+
+#then in a new population where we predict stuff
+pred_y3 <- predict(lm(y1 ~ 1 + x1), newdata = data.frame(x3))
+pred_z3 <- predict(lm(z2 ~ 1 + x2), newdata = data.frame(x3))
+pred_yz_pvals <- summary(lm(pred_y3 ~ x3 + pred_z3))$coefficients[2:(p+1),4]
+pred_zy_pvals <- summary(lm(pred_z3 ~ x3 + pred_y3))$coefficients[2:(p+1),4]
+# hist(pred_yz_pvals)
+# hist(pred_zy_pvals)
+
+#check pvals
+fishers_method(yz_pvals)
+fishers_method(zy_pvals)
+fishers_method(pred_yz_pvals)
+fishers_method(pred_zy_pvals)
+
+
+#what if we just predict one of these?
+pred_y2 <- predict(lm(y1 ~ 1 + x1), newdata = data.frame(x2))
+pred_z1 <- predict(lm(z2 ~ 1 + x2), newdata = data.frame(x1))
+
+yz_pz_pvals <- summary(lm(pred_z1 ~ x1 + y1))$coefficients[2:(p+1),4]
+zy_pz_pvals <- summary(lm(y1 ~ x1 + pred_z1))$coefficients[2:(p+1),4]
+yz_py_pvals <- summary(lm(pred_y2 ~ x2 + z2))$coefficients[2:(p+1),4]
+zy_py_pvals <- summary(lm(z2 ~ x2 + pred_y2))$coefficients[2:(p+1),4]
+
+fishers_method(yz_pz_pvals)
+fishers_method(zy_pz_pvals)
+fishers_method(yz_py_pvals)
+fishers_method(zy_py_pvals)
+
 
 #### run Bayes ####
 

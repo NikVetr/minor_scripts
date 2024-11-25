@@ -13,8 +13,8 @@ inv_logit <- function(x) exp(x)/(1+exp(x))
 #### simulate data ####
 
 #specify data structure
-total <- 200
-n_obs <- 30
+total <- 500
+n_obs <- 50
 n_groups_1 <- 5
 n_groups_2 <- 10
 n <- n_obs * n_groups_1 * n_groups_2
@@ -23,9 +23,9 @@ n_groups_3 <- 10 #extra grouping
 #specify hyperparameters
 sd_a_1 <- 0.8
 sd_a_2 <- 0.5
-sd_b_1 <- 0.3
+sd_b_1 <- 0.7
 sd_b_2 <- 1.2
-sd_c_1 <- 0.4
+sd_c_1 <- 0.9
 sd_c_2 <- 0.6
 sd_g <- 1
 

@@ -133,9 +133,7 @@ points(bmean[nzi], ltmean[nzi], pch = 19, col = 2, cex = 2)
 text(bmean[nzi], ltmean[nzi], labels = 1:nB, col = "white", cex = 0.75)
 
 #compute posterior predictive
-mcprint <- function(...){
-  system(sprintf('printf "%s"', paste0(..., collapse="")))
-}
+mcprint <- function(...){system(sprintf('printf "%s"', paste0(..., collapse="")))}
 npreds <- 10
 sample_indices <- sample(1:nrow(samps), npreds, replace = F)
 model_string <-  paste0(mod_alt$code(), collapse = "\n")

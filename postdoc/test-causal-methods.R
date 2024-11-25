@@ -156,31 +156,59 @@ p_freqs <- rbeta(p, 2, 2)
 p_liab <- qnorm(p_freqs)
 
 #simulate correlated counts in {0,1,2}
-rop <- 0.9
+rop <- 0.5
 rs <- c(1, rop^(1:p / 3))
 R <- outer(1:p, 1:p, FUN = function(i, j, rs) rs[abs(i - j) + 1], rs = rs)
 cholR <- chol(R)
 
-
 nrep <- 1E3
-out <- parallel::mclapply(1:nrep, function(i) 
+mcprint <- function(...){
+  system(sprintf('printf "%s"', paste0(..., collapse="")))
+}
+true_b_yz <- 0
+out <- parallel::mclapply(1:nrep, function(i){
+  if(i %% 50 == 0){mcprint(paste0(i, " "))}
   do.call(rbind, simulate_causal_inference(cholR = chol(diag(p)), 
                                            p_liab = p_liab, 
-                                           b_yz = 0, prop_zvar = 0.1, prop_yvar = 0.5, 
-                                           standardize_vars = F, same_x_for_yz = F)), mc.cores = 12)
+                                           b_yz = true_b_yz, prop_zvar = 0.75, prop_yvar = 0.75, 
+                                           standardize_vars = F, same_x_for_yz = F))}, mc.cores = 12)
 pvals <- data.frame(do.call(rbind, lapply(1:nrep, function(i) unlist(out[[i]]["pvals",]))))
 coefs <- data.frame(do.call(rbind, lapply(1:nrep, function(i) unlist(out[[i]]["coefs",]))))
 
+par(mfrow = c(5,1))
 breaks <- 0:20/20
-hist(pvals$coef_reg, breaks = breaks)
-hist(pvals$pred_reg, breaks = breaks)
-hist(pvals$predix_reg, breaks = breaks)
-hist(pvals$s_predix, breaks = breaks)
-hist(pvals$twmr, breaks = breaks)
+hist(pvals$coef_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("p-values under null (B$_{y,z}$ = 0)"), main = "my method")
+hist(pvals$pred_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("p-values under null (B$_{y,z}$ = 0)"), main = "PrediXcan (2-pop)")
+hist(pvals$predix_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("p-values under null (B$_{y,z}$ = 0)"), main = "PrediXcan (1-pop)")
+hist(pvals$s_predix, breaks = breaks, 
+     xlab = latex2exp::TeX("p-values under null (B$_{y,z}$ = 0)"), main = "S-PrediXcan (3-pop)")
+hist(pvals$twmr, breaks = breaks, 
+     xlab = latex2exp::TeX("p-values under null (B$_{y,z}$ = 0)"), main = "TWMR")
 
-hist(coefs$coef_reg)
-hist(coefs$pred_reg)
-hist(coefs$predix_reg)
-hist(coefs$s_predix)
-hist(coefs$twmr)
+par(mfrow = c(5,1))
+breaks_range <- range(do.call(cbind, coefs)[,-1])
+breaks <- seq(breaks_range[1], breaks_range[2], length.out = 20)
+hist(coefs$coef_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("estimated coefficients under alternate (B$_{y,z}$ = 5)"), main = "my method")
+abline(v = true_b_yz, lwd = 2, lty = 2, col = 2)
+text(x = true_b_yz, y = par("usr")[4], labels = latex2exp::TeX("True B$_{y,z}$"), col = 2, xpd = NA, pos = 3, cex = 1.5)
+hist(coefs$pred_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("estimated coefficients under alternate (B$_{y,z}$ = 5)"), main = "PrediXcan (2-pop)")
+abline(v = true_b_yz, lwd = 2, lty = 2, col = 2)
+text(x = true_b_yz, y = par("usr")[4], labels = latex2exp::TeX("True B$_{y,z}$"), col = 2, xpd = NA, pos = 3, cex = 1.5)
+hist(coefs$predix_reg, breaks = breaks, 
+     xlab = latex2exp::TeX("estimated coefficients under alternate (B$_{y,z}$ = 5)"), main = "PrediXcan (1-pop)")
+abline(v = true_b_yz, lwd = 2, lty = 2, col = 2)
+text(x = true_b_yz, y = par("usr")[4], labels = latex2exp::TeX("True B$_{y,z}$"), col = 2, xpd = NA, pos = 3, cex = 1.5)
+hist(coefs$s_predix, breaks = breaks, 
+     xlab = latex2exp::TeX("estimated coefficients under alternate (B$_{y,z}$ = 5)"), main = "S-PrediXcan (3-pop)")
+abline(v = true_b_yz, lwd = 2, lty = 2, col = 2)
+text(x = true_b_yz, y = par("usr")[4], labels = latex2exp::TeX("True B$_{y,z}$"), col = 2, xpd = NA, pos = 3, cex = 1.5)
+hist(coefs$twmr, breaks = breaks, 
+     xlab = latex2exp::TeX("estimated coefficients under alternate (B$_{y,z}$ = 5)"), main = "TWMR")
+abline(v = true_b_yz, lwd = 2, lty = 2, col = 2)
+text(x = true_b_yz, y = par("usr")[4], labels = latex2exp::TeX("True B$_{y,z}$"), col = 2, xpd = NA, pos = 3, cex = 1.5)
 

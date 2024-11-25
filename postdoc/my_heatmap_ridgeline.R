@@ -239,7 +239,8 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
                        plot_diagonal_labels = T, middle_line_index_range = c(47,53),
                        cell_cols = c("blue", "white", "red"),
                        space_scale_ylabs = 1.4, reorder_mat = T,
-                       symmetric_cols = T, diag_matters = F){
+                       symmetric_cols = T, diag_matters = F, legend_title = ""){
+  
   
   if(is.null(mat_sizes)){
     mat_sizes <- mat_cols^0
@@ -373,7 +374,7 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   add_continuous_legend(colors = colors, labels = breaks[-1] + diff(breaks)/2, 
                         x = 1, y = par("usr")[4] + diff(par("usr")[3:4])/10, 
                         vertical = F, xpd = NA, positions = 1:100/100, left_below = F,
-                        scientific = F, main = pn, w = diff(par("usr")[1:2])/2)
+                        scientific = F, main = legend_title, w = diff(par("usr")[1:2])/2)
   
   
 }
@@ -390,6 +391,9 @@ my_ridgeline <- function(
     min_sample_size = 20,
     decreasing = F,
     xlab = NULL,
+    extra_xlab = NULL,
+    xlab_col = "black",
+    extra_xlab_col = "black",
     space_scale_ylabs = 1.4,
     ylab_disp = 0.1, 
     alternate_border_col = NULL,
@@ -401,7 +405,7 @@ my_ridgeline <- function(
   
   # Filter out bins with low sample size
   d <- d[sapply(d, length) >= min_sample_size]
-  n <- length(d) 
+  n <- length(d)
   
   # Get the sorted group levels 
   if(is.null(order_inputs)){
@@ -501,23 +505,26 @@ my_ridgeline <- function(
   text(x = dx(hax_xlocs), y = dy(hax_ylocs - tickh), labels = hax_xlocs, pos = 1)
   text(x = dx(mean(range(hax_xlocs))), 
        y = dy(hax_ylocs - tickh * 2 - strheight("0", "user") * 1), 
-       labels = xlab, pos = 1)
+       labels = xlab, pos = 1, col = xlab_col)
+  text(x = dx(mean(range(hax_xlocs))), 
+       y = dy(hax_ylocs - tickh * 2 - strheight("0", "user") * 1), 
+       labels = extra_xlab, pos = 1, col = extra_xlab_col)
   
   #left labels (for names)
   if(ylabs){
     xlocs_ll <- dx(min(lbs) - diff(range(c(lbs, rbs))) / 5
     )
-    ylocs_ll <- dy((1:n - n/2) * space_scale_ylabs + n / 2 * space_scale_ylabs - n/10 - 
-      mean(ylocs_ll) + n/2 + ylab_disp * diff(par("usr")[3:4]))
+    ylocs_ll <- (1:n - n/2) * space_scale_ylabs + n / 2 * space_scale_ylabs - n/10 
+    ylocs_ll <- dy(ylocs_ll - mean(ylocs_ll) + n/2 + ylab_disp * diff(par("usr")[3:4]))
     text(x = xlocs_ll, y = ylocs_ll, labels = paste0(n:1, ". ", names(d)), 
          xpd = NA, pos = 2, col = border_cols, cex = 0.8)
     
     #connecting segments -- first drawing the line over
     segments(x0 = dx(min(lbs)), x1 = dx(lbs), 
-             y0 = dy(1:nr), y1 = dy(1:nr), xpd = NA, col = border_cols)
+             y0 = dy(1:n), y1 = dy(1:n), xpd = NA, col = border_cols)
     #then using a bezier curve to smoothly connect to the label
     bezier_curve(x0 = dx(min(lbs)), x1 = xlocs_ll, 
-                 y0 = dy(1:nr), y1 = ylocs_ll, k = 1, col = border_cols)
+                 y0 = dy(1:n), y1 = ylocs_ll, k = 1, col = border_cols)
   }
   
   return(data.frame(i = 1:50, name = names(d), lbs = dx(lbs), rbs = dx(rbs), 

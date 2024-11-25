@@ -6,7 +6,7 @@ par_base <- par(no.readonly = TRUE)
 set.seed <- 123
 
 #specify model with uncertainty
-model_index <- 1
+model_index <- 6
 model_loc <- list("~/scripts/minor_scripts/postdoc/correlation_uncertainty.stan", #1
                   "~/scripts/minor_scripts/postdoc/correlation_uncertainty_horseshoe-unpooled.stan", #2
                   "~/scripts/minor_scripts/postdoc/correlation_uncertainty_horseshoe-partially-pooled.stan", #3
@@ -39,7 +39,7 @@ if(grepl("bivariate-laplace", model_loc)){
 #simulate coefficients
 r <- 0.75 #true correlation between coefficients
 R <- diag(2) * (1-r) + r #corresponding correlation matrix
-p <- 2E3 #total number of samples
+p <- 2E2 #total number of samples
 x <- matrix(rnorm(p*2), ncol = 2) %*% chol(R) #sample true coefficients
 
 #modify data according to model

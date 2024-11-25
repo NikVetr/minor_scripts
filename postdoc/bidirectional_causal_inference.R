@@ -7,7 +7,7 @@ standardize_vars <- F
 p = 50
 n = 200
 prop_yvar = 0.5 #proportion non-aleatoric variance (ie, not in error term)
-prop_zvar = 0.2
+prop_zvar = 0.4
 sd_b_xz_scale <- 0.2
 sd_b_xz = sd_b_xz_scale / sqrt(p)
 b_yz = -4
@@ -160,14 +160,22 @@ fit_xz_pcr <- summary(lm(z2 ~ 1 + x2_PCs))$coefficients[paste0("x2_PCs", 1:p), 1
 fit_xy_pcr - fit_xy_pcr_coerced
 fit_xz_pcr - fit_xz_pcr_coerced
 
-#### run simple causal regression ###
-par(mfrow = c(3,1), mar = c(4,4,1,1))
-plot(mfit_xy, mfit_xz, col = NA)
+#### run simple causal regression ####
+par(mfrow = c(1, 3), mar = c(5,5,2,2))
+plot(mfit_xy, mfit_xz, col = NA, 
+     xlab = "Multiple regression coefficients for X → Y", 
+     ylab = "Multiple regression coefficients for X → Z")
 text(mfit_xy, mfit_xz, labels = 1:p)
+text(x = par("usr")[1], y = par("usr")[4] - diff(par("usr")[3:4])/30, 
+     label = "# = Instrument Index", xpd = NA, pos = 4, col = 2)
 
-plot(mfit_xy_pcr, mfit_xz_pcr, col = NA)
+plot(mfit_xy_pcr, mfit_xz_pcr, col = NA, 
+     xlab = "PCR coefficients for X → Y", 
+     ylab = "PCR coefficients for X → Z")
 text(mfit_xy_pcr, mfit_xz_pcr, labels = 1:p, 
      col = viridis::magma(p, end = 0.8))
+text(x = par("usr")[1], y = par("usr")[4] - diff(par("usr")[3:4])/30, 
+     label = "# = PC Axis Index", xpd = NA, pos = 4, col = 2)
 
 nPCs_fits <- data.frame(do.call(rbind, lapply(3:p, function(i) summary(lm(mfit_xz_pcr[1:i] ~ 1 + mfit_xy_pcr[1:i]))$coefficients[2,1:4])))
 # nPCs_fits <- data.frame(do.call(rbind, lapply(3:p, function(i) summary(lm(mfit_xz_pcr[1:i] ~ 0 + mfit_xy_pcr[1:i]))$coefficients[1,1:4])))
@@ -179,7 +187,19 @@ plot(3:p, nPCs_fits$Estimate, type = "l", ylim = range(c(CI95, 0, b_yz)), xlab =
 polygon(x = c(3:p, p:3, 3), y = c(CI95$lb, rev(CI95$ub), CI95$lb[1]), col = adjustcolor(1,0.25), border = NA)
 abline(h = b_yz, col = 2, lty = 2)
 abline(h = 0, lty = 3)
+legend(x = 15, y = -15, 
+       legend = c("Estimate b_yz", "95% CI (shaded)", "True b_yz", "Zero line"), 
+       col = c(1, adjustcolor(1, 0.25), 2, 1), 
+       lty = c(1, NA, 2, 3), 
+       pch = c(NA, 15, NA, NA),
+       fill = c(NA, adjustcolor(1, 0), NA, NA), 
+       border = c(NA, NA, NA, NA), 
+       bty = "n", 
+       cex = 0.8, 
+       pt.cex = 3, 
+       y.intersp = 1.5)
 
+#####
 
 summary(lm(mfit_xz ~ 1 + mfit_xy))$coefficients[2,1:2]
 summary(lm(mfit_xz_pcr ~ 1 + mfit_xy_pcr))$coefficients[2,1:2]

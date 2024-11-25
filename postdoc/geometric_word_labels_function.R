@@ -352,131 +352,133 @@ stacked_word_labels <- function(words, wcols, x0, y0, nro = 2, variable_priority
   
   
   #iterate through rows connecting starts and ends
-  for(ri in 2:nro){
-    
-    #which words need lines drawn?
-    rt_val <- !is.na(row_targets[[ri]])# & row_priority[[ri]] == 0
-    
-    #compute offsets
-    dirs <- sign(row_targets[[ri]] - row_targets[[ri-1]])
-    x_offset <-  row_priority[[ri]] * dirs * offx
-    y_offset <-  row_priority[[ri]] * offy
-    
-    #re-center x offsets on target
-    offset_groups <- split(names(row_targets[[ri]]), as.character(row_targets[[ri]]))
-    names(offset_groups) <- NULL
-    x_offset_midp <- unlist(lapply(offset_groups, function(x) {
-      setNames(rep(mean(range(x_offset[x])), length(x)), x)
-    }))
-    x_offset[names(x_offset_midp)] <- x_offset[names(x_offset_midp)] - x_offset_midp
-    
-    #ignore x-offsets if terminating here
-    twords <- dw$row == ri
-    x_offset[twords] <- 0
-    
-    if(variable_priority){
+  if(nro > 1){
+    for(ri in 2:nro){
       
-      #parse words with variable priority
-      vp <- row_priority_shifts[[ri]] #variable priority
-      sp <- !(dw$lab %in% names(vp)) #static priority
-      stp <- fip <- row_priority[[ri]] #starting and final priority
-      if(length(vp) > 0){
-        fip[names(vp)] <- fip[names(vp)] - sapply(vp, length)  
-      }
+      #which words need lines drawn?
+      rt_val <- !is.na(row_targets[[ri]])# & row_priority[[ri]] == 0
       
-      #vertical lines to next level
-      segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
-               x1 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
-               y0 = horiz_line_max[ri-1] - y_offset_prev[rt_val],
-               y1 = horiz_line_max[ri] - y_offset[rt_val],
-               col = wcols[rt_val])
+      #compute offsets
+      dirs <- sign(row_targets[[ri]] - row_targets[[ri-1]])
+      x_offset <-  row_priority[[ri]] * dirs * offx
+      y_offset <-  row_priority[[ri]] * offy
       
-      #horizontal lines to next row target
-      segments(x0 = row_targets[[ri-1]][rt_val & sp] + x_offset_prev[rt_val & sp], 
-               x1 = row_targets[[ri]][rt_val & sp] + x_offset[rt_val & sp], 
-               y0 = horiz_line_max[ri] - y_offset[rt_val & sp], 
-               y1 = horiz_line_max[ri] - y_offset[rt_val & sp],
-               col = wcols[rt_val & sp])
+      #re-center x offsets on target
+      offset_groups <- split(names(row_targets[[ri]]), as.character(row_targets[[ri]]))
+      names(offset_groups) <- NULL
+      x_offset_midp <- unlist(lapply(offset_groups, function(x) {
+        setNames(rep(mean(range(x_offset[x])), length(x)), x)
+      }))
+      x_offset[names(x_offset_midp)] <- x_offset[names(x_offset_midp)] - x_offset_midp
       
-      #vertical line up to the terminating words
-      segments(x0 = row_targets[[ri]][twords & sp] + x_offset[twords & sp], 
-               x1 = row_targets[[ri]][twords & sp] + x_offset[twords & sp], 
-               y0 = horiz_line_max[ri] - y_offset[twords & sp], 
-               y1 = dw$y1[twords & sp] - dw$h[twords & sp] / 2,
-               col = wcols[twords & sp])
+      #ignore x-offsets if terminating here
+      twords <- dw$row == ri
+      x_offset[twords] <- 0
       
-      for(wi in names(vp)){
+      if(variable_priority){
         
-        #segment info
-        vpw <- sort(vp[[wi]])
-        rp_incr_vec <- priority_shift_vector(vpw)
-        pseq <- row_priority[[ri]][wi] - rp_incr_vec + 1
-        if(dirs[wi] == -1){
-          vpw <- rev(vpw)
+        #parse words with variable priority
+        vp <- row_priority_shifts[[ri]] #variable priority
+        sp <- !(dw$lab %in% names(vp)) #static priority
+        stp <- fip <- row_priority[[ri]] #starting and final priority
+        if(length(vp) > 0){
+          fip[names(vp)] <- fip[names(vp)] - sapply(vp, length)  
         }
-        ns <- length(vpw)
-        corner_offset <- pseq *  offx * dirs[wi]
         
-        #horizontal connecting lines
-        segments(x0 = c(row_targets[[ri-1]][wi] + x_offset_prev[wi], vpw + corner_offset), 
-                 x1 = c(vpw + corner_offset, row_targets[[ri]][wi] + x_offset[wi]), 
-                 y0 = horiz_line_max[ri] - y_offset[wi] + 
-                   c(0, seq_along(vpw)) * offy, 
-                 y1 = horiz_line_max[ri] - y_offset[wi] + 
-                   c(0, seq_along(vpw)) * offy,
-                 col = wcols[wi])
+        #vertical lines to next level
+        segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
+                 x1 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
+                 y0 = horiz_line_max[ri-1] - y_offset_prev[rt_val],
+                 y1 = horiz_line_max[ri] - y_offset[rt_val],
+                 col = wcols[rt_val])
         
-        #vertical connecting lines
-        segments(x0 = vpw + corner_offset,
-                 x1 = vpw + corner_offset,
-                 y0 = horiz_line_max[ri] - y_offset[wi] +
-                   seq_along(vpw) * offy,
-                 y1 = horiz_line_max[ri] - y_offset[wi] +
-                   c(0, seq_along(vpw))[-(ns+1)] * offy,
-                 col = wcols[wi])
+        #horizontal lines to next row target
+        segments(x0 = row_targets[[ri-1]][rt_val & sp] + x_offset_prev[rt_val & sp], 
+                 x1 = row_targets[[ri]][rt_val & sp] + x_offset[rt_val & sp], 
+                 y0 = horiz_line_max[ri] - y_offset[rt_val & sp], 
+                 y1 = horiz_line_max[ri] - y_offset[rt_val & sp],
+                 col = wcols[rt_val & sp])
+        
+        #vertical line up to the terminating words
+        segments(x0 = row_targets[[ri]][twords & sp] + x_offset[twords & sp], 
+                 x1 = row_targets[[ri]][twords & sp] + x_offset[twords & sp], 
+                 y0 = horiz_line_max[ri] - y_offset[twords & sp], 
+                 y1 = dw$y1[twords & sp] - dw$h[twords & sp] / 2,
+                 col = wcols[twords & sp])
+        
+        for(wi in names(vp)){
+          
+          #segment info
+          vpw <- sort(vp[[wi]])
+          rp_incr_vec <- priority_shift_vector(vpw)
+          pseq <- row_priority[[ri]][wi] - rp_incr_vec + 1
+          if(dirs[wi] == -1){
+            vpw <- rev(vpw)
+          }
+          ns <- length(vpw)
+          corner_offset <- pseq *  offx * dirs[wi]
+          
+          #horizontal connecting lines
+          segments(x0 = c(row_targets[[ri-1]][wi] + x_offset_prev[wi], vpw + corner_offset), 
+                   x1 = c(vpw + corner_offset, row_targets[[ri]][wi] + x_offset[wi]), 
+                   y0 = horiz_line_max[ri] - y_offset[wi] + 
+                     c(0, seq_along(vpw)) * offy, 
+                   y1 = horiz_line_max[ri] - y_offset[wi] + 
+                     c(0, seq_along(vpw)) * offy,
+                   col = wcols[wi])
+          
+          #vertical connecting lines
+          segments(x0 = vpw + corner_offset,
+                   x1 = vpw + corner_offset,
+                   y0 = horiz_line_max[ri] - y_offset[wi] +
+                     seq_along(vpw) * offy,
+                   y1 = horiz_line_max[ri] - y_offset[wi] +
+                     c(0, seq_along(vpw))[-(ns+1)] * offy,
+                   col = wcols[wi])
+          
+          #vertical line up to the terminating words
+          segments(x0 = row_targets[[ri]][twords] + x_offset[twords], 
+                   x1 = row_targets[[ri]][twords] + x_offset[twords], 
+                   y0 = horiz_line_max[ri] - fip[twords] * offy, 
+                   y1 = dw$y1[twords] - dw$h[twords] / 2,
+                   col = wcols[twords])
+          
+        }
+        
+        #retain the last round's info
+        x_offset_prev <- x_offset
+        y_offset_prev <- fip * offy
+        
+      } else {
+        
+        #vertical lines to next level
+        segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
+                 x1 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
+                 y0 = horiz_line_max[ri-1] - y_offset_prev[rt_val],
+                 y1 = horiz_line_max[ri] - y_offset[rt_val],
+                 col = wcols[rt_val])
+        
+        #horizontal lines to next row target
+        segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val], 
+                 x1 = row_targets[[ri]][rt_val] + x_offset[rt_val], 
+                 y0 = horiz_line_max[ri] - y_offset[rt_val], 
+                 y1 = horiz_line_max[ri] - y_offset[rt_val],
+                 col = wcols[rt_val])
         
         #vertical line up to the terminating words
         segments(x0 = row_targets[[ri]][twords] + x_offset[twords], 
                  x1 = row_targets[[ri]][twords] + x_offset[twords], 
-                 y0 = horiz_line_max[ri] - fip[twords] * offy, 
+                 y0 = horiz_line_max[ri] - y_offset[twords], 
                  y1 = dw$y1[twords] - dw$h[twords] / 2,
                  col = wcols[twords])
         
+        #retain the last round's info
+        x_offset_prev <- x_offset
+        y_offset_prev <- y_offset
+        
       }
       
-      #retain the last round's info
-      x_offset_prev <- x_offset
-      y_offset_prev <- fip * offy
-      
-    } else {
-      
-      #vertical lines to next level
-      segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
-               x1 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val],
-               y0 = horiz_line_max[ri-1] - y_offset_prev[rt_val],
-               y1 = horiz_line_max[ri] - y_offset[rt_val],
-               col = wcols[rt_val])
-      
-      #horizontal lines to next row target
-      segments(x0 = row_targets[[ri-1]][rt_val] + x_offset_prev[rt_val], 
-               x1 = row_targets[[ri]][rt_val] + x_offset[rt_val], 
-               y0 = horiz_line_max[ri] - y_offset[rt_val], 
-               y1 = horiz_line_max[ri] - y_offset[rt_val],
-               col = wcols[rt_val])
-      
-      #vertical line up to the terminating words
-      segments(x0 = row_targets[[ri]][twords] + x_offset[twords], 
-               x1 = row_targets[[ri]][twords] + x_offset[twords], 
-               y0 = horiz_line_max[ri] - y_offset[twords], 
-               y1 = dw$y1[twords] - dw$h[twords] / 2,
-               col = wcols[twords])
-      
-      #retain the last round's info
-      x_offset_prev <- x_offset
-      y_offset_prev <- y_offset
-      
     }
-    
   }
     
 }

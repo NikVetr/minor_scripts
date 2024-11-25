@@ -264,13 +264,21 @@ mean(samps$sd_b)
 #plot comparison
 a_range <- range(c(a_errp_samps$x_sigma, samps$sd_a))
 a_breaks <- seq(a_range[1], a_range[2], length.out = 20)
-hist(a_errp_samps$x_sigma, freq = F, col = adjustcolor(2, 0.5), breaks = a_breaks)
-hist(samps$sd_a, add = T, freq = F, col = adjustcolor(3,0.5), breaks = a_breaks)
+hist(a_errp_samps$x_sigma, freq = F, col = adjustcolor("orange", 0.5), breaks = a_breaks,
+     ylim = c(0,9), xlab = latex2exp::TeX("$\\sigma_\\alpha$ (intercept scale)"),
+     main = latex2exp::TeX("Posterior Samples for $\\sigma_\\alpha$ (intercept scale)"))
+hist(samps$sd_a, add = T, freq = F, col = adjustcolor("blue",0.5), breaks = a_breaks)
+legend("topright", pch = 15, col = adjustcolor(c("blue", "orange"), 0.5), bty = "n",
+      legend = c("target distribution (full Bayes)", "meta-analytic approximation"))
 
 b_range <- range(c(b_errp_samps$x_sigma, samps$sd_b))
 b_breaks <- seq(b_range[1], b_range[2], length.out = 20)
-hist(b_errp_samps$x_sigma, freq = F, col = adjustcolor(2, 0.5), breaks = b_breaks)
-hist(samps$sd_b, add = T, freq = F, col = adjustcolor(3,0.5), breaks = b_breaks)
+hist(b_errp_samps$x_sigma, freq = F, col = adjustcolor("orange", 0.5), breaks = b_breaks,
+     ylim = c(0,9), xlab = latex2exp::TeX("$\\sigma_\\beta$ (slope scale)"),
+     main = latex2exp::TeX("Posterior Samples for $\\sigma_\\beta$ (slope scale)"))
+hist(samps$sd_b, add = T, freq = F, col = adjustcolor("blue",0.5), breaks = b_breaks)
+legend("topright", pch = 15, col = adjustcolor(c("blue", "orange"), 0.5), bty = "n",
+       legend = c("target distribution (full Bayes)", "meta-analytic approximation"))
 
 #compare to fitting multilevel model with VB
 # samps_approx_multilevel <- data.frame(as_draws_df(fit_approx_multilevel$draws()))

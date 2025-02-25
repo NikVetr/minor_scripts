@@ -1,5 +1,6 @@
 library(corpcor)
 ifelse2 <- function(bool, opt1, opt2){if(bool){return(opt1)}else{return(opt2)}}
+source("~/scripts/minor_scripts/postdoc/3-way_correlation_constraint.R")
 
 #### analytic version ####
 as <- cs <- setNames(1:10/10, 1:10/10)
@@ -611,6 +612,10 @@ stan_loc <- "~/scripts/minor_scripts/postdoc/conditional_unit-hypersphere-x-beta
 stan_loc_direct <- "~/scripts/minor_scripts/postdoc/conditional_corrmat_direct.stan"
 stan_program <- paste0(readLines(stan_loc), collapse = "\n")
 stan_program_direct <- paste0(readLines(stan_loc_direct), collapse = "\n")
+
+do_Stan_sampling <- F
+if(do_Stan_sampling){
+  
 mod <- cmdstan_model(stan_loc)
 mod_direct <- cmdstan_model(stan_loc_direct)
 
@@ -637,6 +642,7 @@ samps <- as.data.frame(as_draws_df(fit$draws()))
 samps_direct <- as.data.frame(as_draws_df(fit_direct$draws()))
 hist(samps$r, breaks = 100)
 hist(samps_direct$r, breaks = 100)
+}
 
 #### range frac comparison ####
 smoooth_EVs <- function(R, n){
@@ -653,13 +659,14 @@ smoooth_EVs <- function(R, n){
 
 
 estimate_conditional <- F
-p <- 50
+p <- 100
 R <- rlkj(p)
-# r <- 0.5
-# R <- diag(p) + r - diag(p) * r
+r <- 0.8
+R <- diag(p) + r - diag(p) * r
 uR <- chol(R)
 n <- 20
 x <- matrix(rnorm(n*p), ncol = p, nrow = n) %*% uR
+sample.R.true <- cor(x)
 sample.R <- as.matrix(Matrix::nearPD(cor(x), corr = T)$mat)
 I_weight <- 0.0
 sample.R <- sample.R * (1-I_weight) + diag(p) * I_weight
@@ -700,7 +707,8 @@ r.bounds <- data.frame(do.call(rbind, lapply(1:choose(p,2), function(i){
   out <- c(row = indices[1],
     col = indices[2],
     r.true = R[indices[1], indices[2]], 
-    r.obs = r.obs, 
+    r.obs.est = r.obs,
+    r.obs.samp = sample.R.true[indices[1], indices[2]],
     coef_bounds(uR = sample.uR, indices = indices),
     cond_q = conditional_quantile
   )
@@ -708,6 +716,7 @@ r.bounds <- data.frame(do.call(rbind, lapply(1:choose(p,2), function(i){
 })))
 
 #get a few extra useful variables
+r.bounds$r.obs <- r.bounds$r.obs.samp
 r.bounds$r.prop <- (r.bounds$r.obs - r.bounds$r.min) / (r.bounds$r.max - r.bounds$r.min)
 r.bounds$sample.error <- r.bounds$r.obs - r.bounds$r.true
 r.bounds$sample.error.z <- atanh(r.bounds$r.obs) - atanh(r.bounds$r.true)
@@ -728,8 +737,8 @@ plot(r.bounds$r.prop, r.bounds$sample.error,
      xlab = "relative location in range of PSD constrained interval",
      ylab = "error of sample correlation from true correlation"
 )
-abline(h=0,col=2,lty=2,lwd=2)
-abline(v=0.5,col=2,lty=2,lwd=2)
+abline(h=0,col=2,lty=2,lwd=2, xpd=F)
+abline(v=0.5,col=2,lty=2,lwd=2, xpd=F)
 
 if(estimate_conditional){
   plot(r.bounds$cond_q, r.bounds$sample.error,
@@ -739,8 +748,8 @@ if(estimate_conditional){
        xlab = "relative location in range of PSD constrained interval",
        ylab = "error of sample correlation from true correlation"
   )
-  abline(h=0,col=2,lty=2,lwd=2)
-  abline(v=0.5,col=2,lty=2,lwd=2)
+  abline(h=0,col=2,lty=2,lwd=2, xpd=T)
+  abline(v=0.5,col=2,lty=2,lwd=2, xpd=T)
 }
 
 

@@ -207,6 +207,8 @@ evectors_from_evalues <- function(data, par) {
 k <- 5
 l <- diag(sort(gtools::rdirichlet(1, rep(1,k)), T) * k)
 l <- diag(c(k-1, sort(gtools::rdirichlet(1, rep(1,k-1)), T)))
+l <- c(k, rep(0.0, k-1))
+l <- diag(l / sum(l) * k)
 nrep <- 10
 optim_outs <- t(replicate(nrep, {
   optim_out <- optimx::optimx(par = runif(choose(k, 2), 0, pi), 
@@ -222,7 +224,7 @@ est_vs <- lapply(1:nrep, function(i) dkrot(k, optim_outs[i,]))
 est_Rs <- lapply(1:nrep, function(i) est_vs[[i]] %*% l %*% t(est_vs[[i]]))
 est_Rcs <- lapply(1:nrep, function(i) cov2cor(est_Rs[[i]]))
 est_Rcs_ij <- sapply(1:nrep, function(i) est_Rcs[[i]][upper.tri(est_Rcs[[i]])])
-
+est_Rcs
 
 sapply(est_Rcs, function(x) det(x)) #as expected
 apply(est_Rcs_ij, 2, function(x) mean(abs(x)))
@@ -261,7 +263,7 @@ evalues_from_evectors <- function(data, par) {
   
 }
 
-k <- 5
+k <- 10
 v <- random_orthonormal_matrix(k)
 v <- dkrot(k, runif(choose(k, 2), 0, 2 * pi))
 v <- eigen(cor(x)[1:k, 1:k])$vectors

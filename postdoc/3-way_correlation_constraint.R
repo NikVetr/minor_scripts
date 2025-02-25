@@ -63,8 +63,8 @@ cmat_3 <- function(a, b, c){
 }
 
 try_bs <- function(a, b, c, n = 0, max_n = 20, tol = 1E-3){
+  works <- check_psd(cmat_3(a, b, c))
   if(n <= max_n){
-    works <- check_psd(cmat_3(a, b, c))
     new_n <- n + !works
     new_b <- b - 1/(2^n) * ifelse(works, 1, -1/2)
     if(abs(b-new_b) < tol){

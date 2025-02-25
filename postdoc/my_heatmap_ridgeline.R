@@ -235,11 +235,13 @@ bezier_curve <- function(x0, y0, x1, y1, p = 0.5, n = 128, k = 1, col = 1, ...) 
   }
 }
 
+
 my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
                        plot_diagonal_labels = T, middle_line_index_range = c(47,53),
                        cell_cols = c("blue", "white", "red"),
                        space_scale_ylabs = 1.4, reorder_mat = T,
-                       symmetric_cols = T, diag_matters = F, legend_title = ""){
+                       symmetric_cols = T, diag_matters = F, legend_title = "", 
+                       plot_labels = T, plot_legend = T, col_scale = NULL, black_diag = F){
   
   
   if(is.null(mat_sizes)){
@@ -265,7 +267,7 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   cols <- matrix(rep(1:nc, times = nr), nr, nc)
   
   # Create the plot area
-  par(mar = c(2,18,8,2))
+  # par(mar = c(2,18,8,2))
   plot(rows, cols, type = "n", xlab = "", ylab = "", 
        xlim = c(0.5, nr + 0.5), ylim = c(0.5, nc + 0.5), xaxt = "n", yaxt = "n", frame = F)
   
@@ -274,12 +276,19 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   
   # Map mat_cols values to color indices
   if(symmetric_cols){
-    
-    max_abs_val <- ifelse(diag_matters, max(abs(mat_cols)), max(abs(mat_cols[upper.tri(mat_cols)])))  # Maximum absolute value for scaling
+    if(is.null(col_scale)){
+      max_abs_val <- ifelse(diag_matters, max(abs(mat_cols)), max(abs(mat_cols[upper.tri(mat_cols)])))  # Maximum absolute value for scaling
+    } else {
+      max_abs_val <- max(abs(col_scale))
+    }
     breaks <- seq(-max_abs_val, max_abs_val, length.out = 101) * (1+1E-6)
   } else {
-    range_mat_cols <- c(ifelse(diag_matters, min(mat_cols), min(mat_cols[upper.tri(mat_cols)])),
-                        ifelse(diag_matters, max(mat_cols), max(mat_cols[upper.tri(mat_cols)])))
+    if(is.null(col_scale)){
+      range_mat_cols <- c(ifelse(diag_matters, min(mat_cols), min(mat_cols[upper.tri(mat_cols)])),
+                          ifelse(diag_matters, max(mat_cols), max(mat_cols[upper.tri(mat_cols)])))  
+    } else {
+      range_mat_cols <- col_scale
+    }
     breaks <- seq(range_mat_cols[1], range_mat_cols[2], length.out = 101) * (1+1E-6)
   }
   color_indices <- matrix(cut(mat_cols, breaks = breaks, labels = FALSE), nr, nc)
@@ -291,15 +300,20 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   for (i in 1:nr^2) {
     x_center <- cols[i]
     y_center <- rows[i]
+    half_size <- size[i] / 2  # Half of the side length to adjust for centering
     
     #skip plotting diagonal if it does not matter (eg, in correlation matrices)
     if(!diag_matters){
       if(cols[i] == rows[i]){
+        if(black_diag){
+          # Draw rectangles
+          rect(x_center - half_size, y_center - half_size, 
+               x_center + half_size, y_center + half_size, 
+               col = 1, border = NA)
+        }
         next()
       }
     }
-    
-    half_size <- size[i] / 2  # Half of the side length to adjust for centering
     
     # Draw rectangles
     rect(x_center - half_size, y_center - half_size, 
@@ -310,72 +324,75 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   #label heatmap
   
   #left labels (for names)
-  xlocs_ll <- par("usr")[1] - diff(par("usr")[1:2])/10
-  ylocs_ll <- (1:nr - nr/2) * space_scale_ylabs + nr / 2 * space_scale_ylabs - nr/10
-  text(x = xlocs_ll, y = ylocs_ll, labels = paste0(nr:1, ". ", dim_names), 
-       xpd = NA, pos = 2, col = 1, cex = 0.8)
-  segments(x0 = -0.5, x1 = xlocs_ll - 0.5, y0 = 1:nr, y1 = ylocs_ll, xpd = NA)
-  
-  #top labels
-  text(1:nr, nr + rep(0:1, ceiling(nr/2))[1:nr], 
-       1:nr, pos = 3, cex = 0.5, xpd = NA)
-  segments(x0 = 1:(nr/2) * 2, 
-           x1 = 1:(nr/2) * 2, 
-           y0 = nr+0.75,
-           y1 = nr+1.75,
-           xpd = NA)
-  
-  #bottom labels
-  text(1:nr, 1 - rep(0:1, ceiling(nr/2))[1:nr], 
-       1:nr, pos = 1, cex = 0.5, xpd = NA)
-  segments(x0 = 1:(nr/2) * 2, 
-           x1 = 1:(nr/2) * 2, 
-           y0 = 0.25,
-           y1 = -0.75,
-           xpd = NA)
-  
-  #diagonal labels?
-  if(plot_diagonal_labels){
-    #get the indices of the rows that are blank enough and contain the diagonal
-    coords_middle_lines <- do.call(rbind, lapply(1:nr, function(i){
-      cis <- color_indices[,i]
-      rlecont <- rle(cis > middle_line_index_range[1] & cis < middle_line_index_range[2])
-      rlec <- data.frame(val = rlecont$values, len = rlecont$lengths)
-      rlec$i0 <- cumsum(c(1, rlecont$lengths[-nrow(rlec)]))
-      rlec$i1 <- cumsum(rlecont$lengths)
-      rlec <- rlec[rlec$val,]
-      rlec_mid <- rlec[rlec$i0 <= i & rlec$i1 >= i,]
-      if(nrow(rlec_mid) > 0){
-        out <- data.frame(x0 = i, x1 = i, y0 = rlec_mid$i0, y1 = rlec_mid$i1)  
-      } else {
-        out <- NULL
-      }
-      return(out)
-    }))
+  if(plot_labels){
+    xlocs_ll <- par("usr")[1] - diff(par("usr")[1:2])/10
+    ylocs_ll <- (1:nr - nr/2) * space_scale_ylabs + nr / 2 * space_scale_ylabs - nr/10
+    text(x = xlocs_ll, y = ylocs_ll, labels = paste0(nr:1, ". ", dim_names), 
+         xpd = NA, pos = 2, col = 1, cex = 0.8)
+    segments(x0 = -0.5, x1 = xlocs_ll - 0.5, y0 = 1:nr, y1 = ylocs_ll, xpd = NA)
     
-    #draw guiding lines
-    if(!is.null(coords_middle_lines)){
-      segments(x0 = coords_middle_lines$x0, 
-               y0 = coords_middle_lines$y0, 
-               x1 = coords_middle_lines$x1, 
-               y1 = coords_middle_lines$y1,
-               adjustcolor(1, 0.1))
+    #top labels
+    text(1:nr, nr + rep(0:1, ceiling(nr/2))[1:nr], 
+         1:nr, pos = 3, cex = 0.5, xpd = NA)
+    segments(x0 = 1:(nr/2) * 2, 
+             x1 = 1:(nr/2) * 2, 
+             y0 = nr+0.75,
+             y1 = nr+1.75,
+             xpd = NA)
+    
+    #bottom labels
+    text(1:nr, 1 - rep(0:1, ceiling(nr/2))[1:nr], 
+         1:nr, pos = 1, cex = 0.5, xpd = NA)
+    segments(x0 = 1:(nr/2) * 2, 
+             x1 = 1:(nr/2) * 2, 
+             y0 = 0.25,
+             y1 = -0.75,
+             xpd = NA)
+    
+    #diagonal labels?
+    if(plot_diagonal_labels){
+      #get the indices of the rows that are blank enough and contain the diagonal
+      coords_middle_lines <- do.call(rbind, lapply(1:nr, function(i){
+        cis <- color_indices[,i]
+        rlecont <- rle(cis > middle_line_index_range[1] & cis < middle_line_index_range[2])
+        rlec <- data.frame(val = rlecont$values, len = rlecont$lengths)
+        rlec$i0 <- cumsum(c(1, rlecont$lengths[-nrow(rlec)]))
+        rlec$i1 <- cumsum(rlecont$lengths)
+        rlec <- rlec[rlec$val,]
+        rlec_mid <- rlec[rlec$i0 <= i & rlec$i1 >= i,]
+        if(nrow(rlec_mid) > 0){
+          out <- data.frame(x0 = i, x1 = i, y0 = rlec_mid$i0, y1 = rlec_mid$i1)  
+        } else {
+          out <- NULL
+        }
+        return(out)
+      }))
       
-      #plot the labels 
-      rect(xleft = 1:nr - 0.5, ybottom = 1:nr - 0.5, 
-           xright = 1:nr + 0.5, ytop = 1:nr + 0.5, 
-           col = colors[round(length(colors)/2)], border = NA)
-      text(1:nr, 1:nr, 1:nr, cex = 0.5, xpd = NA, col = adjustcolor(1, 0.5))
-    }
-    
+      #draw guiding lines
+      if(!is.null(coords_middle_lines)){
+        segments(x0 = coords_middle_lines$x0, 
+                 y0 = coords_middle_lines$y0, 
+                 x1 = coords_middle_lines$x1, 
+                 y1 = coords_middle_lines$y1,
+                 adjustcolor(1, 0.1))
+        
+        #plot the labels 
+        rect(xleft = 1:nr - 0.5, ybottom = 1:nr - 0.5, 
+             xright = 1:nr + 0.5, ytop = 1:nr + 0.5, 
+             col = colors[round(length(colors)/2)], border = NA)
+        text(1:nr, 1:nr, 1:nr, cex = 0.5, xpd = NA, col = adjustcolor(1, 0.5))
+      }
+      
+    } 
   }
   
   #top legend
-  add_continuous_legend(colors = colors, labels = breaks[-1] + diff(breaks)/2, 
-                        x = 1, y = par("usr")[4] + diff(par("usr")[3:4])/10, 
-                        vertical = F, xpd = NA, positions = 1:100/100, left_below = F,
-                        scientific = F, main = legend_title, w = diff(par("usr")[1:2])/2)
-  
+  if(plot_legend){
+    add_continuous_legend(colors = colors, labels = breaks[-1] + diff(breaks)/2, 
+                          x = 1, y = par("usr")[4] + diff(par("usr")[3:4])/(10+ifelse(plot_labels, 0, 10)), 
+                          vertical = F, xpd = NA, positions = 1:100/100, left_below = F,
+                          scientific = F, main = legend_title, w = diff(par("usr")[1:2])/2)
+  }
   
 }
 

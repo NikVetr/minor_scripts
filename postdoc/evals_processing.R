@@ -22,6 +22,7 @@ text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, ...){
 }
 #### read in data ####
 
+randomize_data <- T
 d <- read.csv("~/Documents/Documents - nikolai/cam_review/2023 WAI Executive Director Evaluation (Responses) - Form Responses 1.csv")
 likert <- c("Strongly Disagree", "Disagree", "Neither Agree nor Disagree" ,"Agree" ,"Strongly Agree")
 d[d == "N/A"] <- NA
@@ -95,6 +96,13 @@ dn <- apply(d, 2, as.numeric)
 dn <- dn[,!apply(apply(dn, 2, is.na), 2, all)]
 dn[,inverted_qs] <- 6 - dn[,inverted_qs]
 
+if(randomize_data){
+  for(i in 1:ncol(dn)){
+    dn[,i] <- sample(x = c(NA, 1:5), size = nrow(dn), replace = T, prob = c(exp(rnorm(6))))
+  }
+}
+
+
 #compute metrics
 item_means <- apply(dn, 2, mean, na.rm = TRUE)
 item_beta_means <- (apply(dn, 2, sum, na.rm = TRUE) + 1) / 
@@ -143,41 +151,54 @@ col_dat <- data.frame(comms_h = numeric(4),
                        comms = character(4))
 
 for(si in 1:4){
+    
+  subds <- ds[[si]][,1:(length(ds[[si]])-1)]
   
-subds <- ds[[si]][,1:(length(ds[[si]])-1)]
-
-base_h <- 275 * ncol(subds) / 72
-cairo_pdf(tempfile(),
-          width = 500 / 72, height = base_h, family = "Crimson Text")
-
-comms <- ds[[si]][,length(ds[[si]])]
-comms <- comms[!is.na(comms)]
-comms <- paste0(comms, collapse = "~~\n")
-
-#redact identifying info
-comms <- gsub(" Cat.", " REDACTED.", comms)
-
-nchar_pl <- 115
-comms_parts <- str_split(comms, "\n")[[1]]
-comms_wrapped <- sapply(comms_parts, str_wrap, width = nchar_pl)
-comms <- paste(comms_wrapped, collapse = "\n")
-
-comms <- gsub("~~", paste0("\n\n", paste0(rep("-", nchar_pl + 10), collapse = ""),"\n\n"), comms)
-comms <- gsub("\n\n\n", "\n\n", comms)
-comms_h <- strheight(comms, units = "inches")
-
-dev.off()
-
-col_dat$comms_h[si] <- comms_h
-col_dat$comms[si] <- comms
-col_dat$base_h[si] <- base_h
+  base_h <- 275 * ncol(subds) / 72
+  cairo_pdf(tempfile(),
+            width = 500 / 72, height = base_h, family = "Crimson Text")
+  
+  comms <- ds[[si]][,length(ds[[si]])]
+  
+  if(randomize_data){
+    for(i in 1:length(comms)){
+      if(!is.na(comms[i])){
+        comms[i] <- paste0(sample(strsplit(comms[i], "")[[1]]), collapse = "")
+      }
+      
+    }
+  }
+  comms <- comms[!is.na(comms)]
+  comms <- paste0(comms, collapse = "~~\n")
+  
+  #redact identifying info
+  comms <- gsub(" Cat.", " REDACTED.", comms)
+  
+  nchar_pl <- 115
+  comms_parts <- str_split(comms, "\n")[[1]]
+  comms_wrapped <- sapply(comms_parts, str_wrap, width = nchar_pl)
+  comms <- paste(comms_wrapped, collapse = "\n")
+  
+  comms <- gsub("~~", paste0("\n\n", paste0(rep("-", nchar_pl + 10), collapse = ""),"\n\n"), comms)
+  comms <- gsub("\n\n\n", "\n\n", comms)
+  comms_h <- strheight(comms, units = "inches")
+  
+  dev.off()
+  
+  col_dat$comms_h[si] <- comms_h
+  col_dat$comms[si] <- comms
+  col_dat$base_h[si] <- base_h
 
 }
 
 #### one big figure ####
-
-cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/2023-12_ED-Eval_Results_WAI.pdf"),
-          width = 500 / 72 * 6, height = max(col_dat$base_h + col_dat$comms_h), family = "Crimson Text")
+if(randomize_data){
+  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/example_output.pdf"),
+            width = 500 / 72 * 6, height = max(col_dat$base_h + col_dat$comms_h), family = "Crimson Text")
+} else {
+  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/2023-12_ED-Eval_Results_WAI.pdf"),
+            width = 500 / 72 * 6, height = max(col_dat$base_h + col_dat$comms_h), family = "Crimson Text")
+}
 par(xpd = NA, mar = c(0,0,0,0))
 
 txt_cex <- 1.3

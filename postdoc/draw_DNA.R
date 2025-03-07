@@ -1,5 +1,4 @@
 source("~/repos/polylines/R/functions.R")
-
 #### function ####
 
 draw_DNA <- function(
@@ -229,13 +228,13 @@ draw_DNA <- function(
   
 }
 
-png("~/dna_strand.png", width = 2000, height = 2000)
-par(xpd = NA, mar = c(0,0,0,0))
-
-plot(NULL, NULL, xlim = c(-8,8), ylim = bounds, frame = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
-draw_DNA(rot = 135, extend_straight = "b", target_center = c(2,1), box_dim = c(8,14))
-
-dev.off()
+# png("~/dna_strand.png", width = 2000, height = 2000)
+# par(xpd = NA, mar = c(0,0,0,0))
+# 
+# plot(NULL, NULL, xlim = c(-8,8), ylim = bounds, frame = F, xaxt = "n", yaxt = "n", xlab = "", ylab = "")
+# draw_DNA(rot = 135, extend_straight = "b", target_center = c(2,1), box_dim = c(8,14))
+# 
+# dev.off()
 
 
 #### initial non-function-wrapped code ####

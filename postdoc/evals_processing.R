@@ -7,70 +7,97 @@ library(corrplot)
 # Install and load necessary packages
 library(extrafont)
 
-#### functions ####
-text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, ...){
-  adj_x <- x + ifelse(any(pos %in% c(2,4)), ifelse(any(pos == 2), -1, 1) * strwidth(labels, cex = cex) / 2, 0)
-  adj_y <- y + ifelse(any(pos %in% c(1,3)), ifelse(any(pos == 1), -1, 1) * strheight(labels, cex = cex) / 2, 0)
-  text(x = adj_x, y = adj_y, labels = labels, pos = NULL, cex = cex, ...)
-  if(drect){
-    rect(xleft = adj_x - strwidth(labels, cex = cex) / 2, 
-         xright = adj_x + strwidth(labels, cex = cex) / 2, 
-         ybottom = adj_y - strheight(labels, cex = cex) / 2, 
-         ytop = adj_y + strheight(labels, cex = cex) / 2)
-    # abline(h = adj_y - strheight(labels, cex = cex) / 2, lwd = 0.5)
-  }
-}
 #### read in data ####
 
-randomize_data <- T
-d <- read.csv("~/Documents/Documents - nikolai/cam_review/2023 WAI Executive Director Evaluation (Responses) - Form Responses 1.csv")
+randomize_data <- F
+base_dir <- "~/Documents/Documents - nikolai/cam_review/"
+results_dir <- paste0(base_dir, "results/")
+input_dir <- paste0(base_dir, "input/")
+# input_name <- c("2023 WAI Executive Director Evaluation (Responses) - Form Responses 1.csv")[1]
+year <- 2023
+input_name <- paste0(year, " WAI Executive Director Evaluation (Responses).txt")
+file_path <- paste0(input_dir, input_name)
+d <- as.data.frame(data.table::fread(file_path))
 likert <- c("Strongly Disagree", "Disagree", "Neither Agree nor Disagree" ,"Agree" ,"Strongly Agree")
+d[d == 0] <- NA
 d[d == "N/A"] <- NA
 d[d == ""] <- NA
 for(ri in likert){
   d[d == ri] <- which(likert == ri)
 }
-col.names <- c("Timestamp",
-               "The ED clearly communicates relevant expectations and goals to me and my team.",
-               "The ED responds to requests or communications in a timely manner.",
-               "The ED understands and helps me to understand how my work contributes to organizational strategy.",
-               "The Executive Director clearly communicates motivations and justifications for their decisions. I understand why they make the choices they do, even when I don’t agree with them.",
-               "I have a clear understanding of how the ED perceives my work performance at WAI.",
-               "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
-               "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
-               "In 2023, the ED made excellent progress toward the ORCAs for which they are primarily responsible.",
-               "The ED does not trust my expertise in my specific work area, and tends to micromanage projects that would better be left to me.",
-               "I am inspired by the ED’s efforts to boost team morale and spirit. Their enthusiasm seems sincere and resonates with me.",
-               "I often disagree with decisions made by the ED in my work area.",
-               "I would feel comfortable approaching the ED directly with suggestions on how they could improve in their role at WAI.",
-               "I would feel comfortable approaching the ED directly about something impeding my success and happiness at WAI that they are not directly responsible for.",
-               "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
-               "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
-               "The ED is sufficiently familiar with the technical aspects of wild animal welfare science to be able to provide meaningful input and direction for research at WAI.",
-               "The ED is effective at time management – they appropriately prioritize important tasks and are able judge less important ones to ignore or delegate.",
-               "I am satisfied with the amount of time I interact with the ED.",
-               "The ED provides regular feedback in ways that effectively facilitate my own improvement, both in the form of constructive criticism and in positive affirmation of jobs well done.",
-               "The ED has been effective at obtaining funding for WAI’s continued operation and growth.",
-               "I am proud of how the ED represents WAI when engaging with external stakeholders.",
-               "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
-               "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
-               "The ED fosters an inclusive work environment, both in supporting staff and in intervening against intolerant work dynamics.",
-               "I have been made uncomfortable by the ED in the last 12 months.",
-               "The ED is proactive in identifying ways in which the WAI work environment can be improved.",
-               "Disagreements with the ED about approach, mission, and tactics are handled appropriately and respectfully.",
-               "The ED successfully moderates disagreements among staff.",
-               "The ED treats all employees equitably and without favoritism.",
-               "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
-               "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
-               "In what important areas has the ED been most successful, relative to your expectations for their role? In what ways would they likely outperform a different ED?",
-               "In what important areas has the ED been least successful, relative to your expectations for their role? In what ways would a different ED likely outperform them?",
-               "Imagine you have the opportunity to direct how the ED spends 40 hours of their focused time over the next year, without affecting their other responsibilities. How would you allocate these hours to maximize the ED's effectiveness in their role at WAI? Responses can include, but are not limited to, professional development courses, wellness activities, skill-building workshops, or any other accessible experiences that you believe would enhance their performance and contribution to WAI. Please be as specific as possible in your suggestions.",
-               "As above, but corresponding to only 1 hour of time.",
-               "Please put any comments on the survey as a whole here! Responses here will not be shared with Cam directly and will only be visible to the board. You may also use this space to privately respond to the above questions.",
-               "Score")
+
+# replace faulty encoding of dash and apostrophe :/
+colnames(d) <- vapply(colnames(d), function(s) {
+  r <- charToRaw(enc2native(s))
+  out <- raw()
+  for (b in r) {
+    if (b == as.raw(0xD5)) {
+      out <- c(out, charToRaw("’"))  # or charToRaw("'") for ASCII apostrophe
+    } else if (b == as.raw(0xD0)) {
+      out <- c(out, charToRaw("–"))
+    } else {
+      out <- c(out, b)
+    }
+  }
+  rawToChar(out)
+}, character(1), USE.NAMES = FALSE)
+colnames(d) <- as.character(sapply(colnames(d), function(x){
+  if(substr(x, nchar(x), nchar(x)) == "’"){
+    return(substr(x, 1, nchar(x)-1))
+  } else {
+    return(x)
+  }
+}))
+colnames(d) <- as.character(sapply(colnames(d), function(x){
+  if(substr(x, 1, 1) == "\n"){
+    return(substr(x, 2, nchar(x)))
+  } else {
+    return(x)
+  }
+}))
+
+#did this manually before
+# col.names <- c("Timestamp",
+#                "The ED clearly communicates relevant expectations and goals to me and my team.",
+#                "The ED responds to requests or communications in a timely manner.",
+#                "The ED understands and helps me to understand how my work contributes to organizational strategy.",
+#                "The Executive Director clearly communicates motivations and justifications for their decisions. I understand why they make the choices they do, even when I don’t agree with them.",
+#                "I have a clear understanding of how the ED perceives my work performance at WAI.",
+#                "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
+#                "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
+#                "In 2023, the ED made excellent progress toward the ORCAs for which they are primarily responsible.",
+#                "The ED does not trust my expertise in my specific work area, and tends to micromanage projects that would better be left to me.",
+#                "I am inspired by the ED’s efforts to boost team morale and spirit. Their enthusiasm seems sincere and resonates with me.",
+#                "I often disagree with decisions made by the ED in my work area.",
+#                "I would feel comfortable approaching the ED directly with suggestions on how they could improve in their role at WAI.",
+#                "I would feel comfortable approaching the ED directly about something impeding my success and happiness at WAI that they are not directly responsible for.",
+#                "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
+#                "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
+#                "The ED is sufficiently familiar with the technical aspects of wild animal welfare science to be able to provide meaningful input and direction for research at WAI.",
+#                "The ED is effective at time management – they appropriately prioritize important tasks and are able judge less important ones to ignore or delegate.",
+#                "I am satisfied with the amount of time I interact with the ED.",
+#                "The ED provides regular feedback in ways that effectively facilitate my own improvement, both in the form of constructive criticism and in positive affirmation of jobs well done.",
+#                "The ED has been effective at obtaining funding for WAI’s continued operation and growth.",
+#                "I am proud of how the ED represents WAI when engaging with external stakeholders.",
+#                "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
+#                "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
+#                "The ED fosters an inclusive work environment, both in supporting staff and in intervening against intolerant work dynamics.",
+#                "I have been made uncomfortable by the ED in the last 12 months.",
+#                "The ED is proactive in identifying ways in which the WAI work environment can be improved.",
+#                "Disagreements with the ED about approach, mission, and tactics are handled appropriately and respectfully.",
+#                "The ED successfully moderates disagreements among staff.",
+#                "The ED treats all employees equitably and without favoritism.",
+#                "Please use this space for comments on the above statements or your selections that will be shared with Cam directly:",
+#                "Please use this space for comments on the above statements or your selections that will be privately visible only to the board:",
+#                "In what important areas has the ED been most successful, relative to your expectations for their role? In what ways would they likely outperform a different ED?",
+#                "In what important areas has the ED been least successful, relative to your expectations for their role? In what ways would a different ED likely outperform them?",
+#                "Imagine you have the opportunity to direct how the ED spends 40 hours of their focused time over the next year, without affecting their other responsibilities. How would you allocate these hours to maximize the ED's effectiveness in their role at WAI? Responses can include, but are not limited to, professional development courses, wellness activities, skill-building workshops, or any other accessible experiences that you believe would enhance their performance and contribution to WAI. Please be as specific as possible in your suggestions.",
+#                "As above, but corresponding to only 1 hour of time.",
+#                "Please put any comments on the survey as a whole here! Responses here will not be shared with Cam directly and will only be visible to the board. You may also use this space to privately respond to the above questions.",
+#                "Score")
+# colnames(d) <- col.names
 inverted_qs <- col.names[c(10, 12, 26)]
 
-colnames(d) <- col.names
 d <- d[,-1]
 d <- d[-1,]
 splits <- c(-1, 
@@ -112,6 +139,18 @@ item_beta_shapes <- cbind(1 + apply(dn, 2, sum, na.rm = TRUE),
 
 item_90CI_beta <- do.call(rbind, lapply(setNames(1:nrow(item_beta_shapes), nm = rownames(item_beta_shapes)), function(i){
   qbeta(p = c(0.05, 0.95), 
+        shape1 = item_beta_shapes[i,1], 
+        shape2 = item_beta_shapes[i,2] - item_beta_shapes[i,1])
+})) * 5
+
+item_50CI_beta <- do.call(rbind, lapply(setNames(1:nrow(item_beta_shapes), nm = rownames(item_beta_shapes)), function(i){
+  qbeta(p = c(0.25, 0.75), 
+        shape1 = item_beta_shapes[i,1], 
+        shape2 = item_beta_shapes[i,2] - item_beta_shapes[i,1])
+})) * 5
+
+item_beta_median <- do.call(rbind, lapply(setNames(1:nrow(item_beta_shapes), nm = rownames(item_beta_shapes)), function(i){
+  qbeta(p = c(0.5), 
         shape1 = item_beta_shapes[i,1], 
         shape2 = item_beta_shapes[i,2] - item_beta_shapes[i,1])
 })) * 5
@@ -160,6 +199,22 @@ for(si in 1:4){
   
   comms <- ds[[si]][,length(ds[[si]])]
   
+  #fix encoding issue
+  comms <- vapply(comms, function(s) {
+    r <- charToRaw(enc2native(s))
+    out <- raw()
+    for (b in r) {
+      if (b == as.raw(0xD5)) {
+        out <- c(out, charToRaw("’"))  # or charToRaw("'")
+      } else if (b == as.raw(0xD0)) {
+        out <- c(out, charToRaw("-"))
+      } else {
+        out <- c(out, b)
+      }
+    }
+    rawToChar(out)
+  }, character(1))
+  
   if(randomize_data){
     for(i in 1:length(comms)){
       if(!is.na(comms[i])){
@@ -168,7 +223,7 @@ for(si in 1:4){
       
     }
   }
-  comms <- comms[!is.na(comms)]
+  comms <- comms[!is.na(comms) & comms != "NA"]
   comms <- paste0(comms, collapse = "~~\n")
   
   #redact identifying info
@@ -191,12 +246,26 @@ for(si in 1:4){
 
 }
 
+#write sumstats to disk
+item_data <- data.frame(beta_sds = item_beta_sds, 
+                        beta_mean = item_beta_means,
+                        label = names(item_beta_means),
+                        beta_90CI_lb = item_90CI_beta[,1],
+                        beta_90CI_ub = item_90CI_beta[,2],
+                        beta_50CI_lb = item_50CI_beta[,1],
+                        beta_50CI_ub = item_50CI_beta[,2],
+                        beta_shape_1 = item_beta_shapes[,1],
+                        beta_shape_2 = item_beta_shapes[,2],
+                        beta_median = item_beta_median
+                        )
+data.table::fwrite(item_data, file = paste0(results_dir, year, "_item_summary_data.csv"))
+
 #### one big figure ####
 if(randomize_data){
   cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/example_output.pdf"),
             width = 500 / 72 * 6, height = max(col_dat$base_h + col_dat$comms_h), family = "Crimson Text")
 } else {
-  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/2023-12_ED-Eval_Results_WAI.pdf"),
+  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/", year, "_ED-Eval_Results_WAI.pdf"),
             width = 500 / 72 * 6, height = max(col_dat$base_h + col_dat$comms_h), family = "Crimson Text")
 }
 par(xpd = NA, mar = c(0,0,0,0))
@@ -262,7 +331,7 @@ for(i in 1:ncol(subds)){
   text(label = qlab, 
        x = mean(par("usr")[1:2]), 
        y = par("usr")[4] + diff(par("usr")[3:4])/4 - strheight(qlab),
-       pos = 3, cex = 1.5)
+       pos = 3, cex = 1.5, col = "darkred")
   axis(2, at = seq(0, max(counts), by = 1), 
        las = 2, labels = seq(0, max(counts), by = 1), cex.axis = 1.5)
   text(bp, par("usr")[3] - diff(par("usr")[3:4])/5, srt = 30, adj = 1, 
@@ -328,11 +397,11 @@ for(i in 1:ncol(subds)){
 adj_y <- c(0,0,0,0)
 plot(NA,NA, xlim = c(-1,1), ylim = c(0, 1), xlab = "", ylab = "", xaxt = "n", xpd = NA, yaxt = "n", frame = F)
 text("Please use this space for comments on the above statements or your selections that will be shared with Cam:", 
-     y = 1.075 + adj_y[si], x = -0.1, cex = txt_cex, font = 2, xpd = NA)
+     y = 1.075 + adj_y[si], x = -0.1, cex = txt_cex, font = 2, xpd = NA, col = 1)
 text(comms, y = 1 + adj_y[si] - 
        strheight(comms, units = "user", family = "Crimson Text") * txt_cex * 1.2 / 2 -
        strheight(" ", units = "user", family = "Crimson Text") * txt_cex * 3, 
-     x = -1.3, cex = txt_cex, pos = c(4), xpd = NA)
+     x = -1.3, cex = txt_cex, pos = c(4), xpd = NA, col = "grey20")
 
 
 }
@@ -444,6 +513,15 @@ corrplot(as.matrix(person_corrmat), method = "square",
          addgrid.col = NA,          
          cl.cex = 3,                
          mar = c(10, 0, 5, 15), cl.length = 5, cl.align.text = "l", diag = F)
+rect(xleft = 1:ncol(person_corrmat) - 1/2, 
+     ybottom = ncol(person_corrmat):1 - 1/2, 
+     xright = 1:ncol(person_corrmat) + 1/2, 
+     ytop = ncol(person_corrmat):1 + 1/2,
+     col = "grey", border = "white")
+text(x = 1:ncol(person_corrmat), 
+     y = ncol(person_corrmat):1, 
+     labels = 1:ncol(person_corrmat),
+     col = "white", cex = 4)
 text(latex2exp::TeX("Pearson's \\textit{r} Between Individual Respondents"), 
      y = mean(par("usr")[3:4]), srt = 270, cex = 5, x = par("usr")[2] - diff(par("usr")[1:2])/25, 
      col = "#00c1b2")
@@ -509,7 +587,6 @@ dev.off()
 
 #####
 
-
 fr <- d[,(ncol(d)-5):(ncol(d)-2)]
 
 for(i in 1:length(fr)){
@@ -521,3 +598,153 @@ for(i in 1:length(fr)){
   
   
 }
+
+#### compare years ####
+
+# with just two years, we can do a scatterplot
+years <- 2023:2024
+dats <- lapply(setNames(years, years), function(yi){
+  as.data.frame(data.table::fread(paste0(results_dir, yi, "_item_summary_data.csv")))
+})
+nitems <- nrow(dats[[1]])
+
+#check to make sure we are selecting the same items
+equal_labels_across_years <- dats[[1]]$label == dats[[2]]$label
+cbind(dats[[1]]$label, dats[[2]]$label)[!equal_labels_across_years,]
+
+#preprocess
+use_median <- T
+use_50CI <- T
+if(use_median){
+  centers <- data.frame(x = dats[[1]]$beta_median, y = dats[[2]]$beta_median)
+} else {
+  centers <- data.frame(x = dats[[1]]$beta_mean, y = dats[[2]]$beta_mean)
+}
+if(use_50CI){
+  intervals_x <- data.frame(x0 = dats[[1]]$beta_50CI_lb, x1 = dats[[1]]$beta_50CI_ub)
+  intervals_y <- data.frame(y0 = dats[[2]]$beta_50CI_lb, y1 = dats[[2]]$beta_50CI_ub)
+} else {
+  intervals_x <- data.frame(x0 = dats[[1]]$beta_90CI_lb, x1 = dats[[1]]$beta_90CI_ub)
+  intervals_y <- data.frame(y0 = dats[[2]]$beta_90CI_lb, y1 = dats[[2]]$beta_90CI_ub)
+}
+delta <- centers$y - centers$x
+order_items <- order(delta)
+rank_items <- rank(delta)
+
+#plot main scatterplot
+if(randomize_data){
+  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/example_output_comparison.pdf"),
+            width = 500 / 72, height = 1200 / 72, family = "Crimson Text")
+} else {
+  cairo_pdf(paste0("~/Documents/Documents - nikolai/cam_review/results/", paste0(years, collapse = "-"), "_ED-Eval_Results_WAI.pdf"),
+            width = 520 / 72, height = 1200 / 72, family = "Crimson Text")
+}
+
+layout(cbind(c(1,2)), heights = c(1,1.5))
+plot(centers[,1], centers[,2],
+     xlab = paste0(years[1], " Results"), ylab = paste0(years[2], " Results"), 
+     xlim = range(c(intervals_x, centers$x)),
+     ylim = range(c(intervals_y, centers$y)), 
+     col = cat_cols[cat_key[dats[[as.character(year)]]$label]],
+     cex = 2, cex.lab = 1.25
+)
+
+#get CIs in there
+segments(x0 = intervals_x$x0, x1 = intervals_x$x1,
+         y0 = centers$y, y1 = centers$y, col = cat_cols[cat_key[dats[[as.character(year)]]$label]])
+segments(y0 = intervals_y$y0, y1 = intervals_y$y1,
+         x0 = centers$x, x1 = centers$x, col = cat_cols[cat_key[dats[[as.character(year)]]$label]])
+abline(0,1,lty=2,lwd=2,col="darkgrey")
+
+#plot numbers for labels
+text(centers[,1], centers[,2], labels = rank_items, col = "white", cex = 0.7, font = 2)
+
+#color plot for good or bad result
+usr <- par("usr")
+x1 <- usr[1];  x2 <- usr[2]
+y1 <- usr[3];  y2 <- usr[4]
+polygon(
+  x = c(x1, x1, x2, x2),
+  y = c(x1, y2, y2, x2),
+  col=adjustcolor("green", 0.05), border=NA
+)
+
+polygon(
+  x = c(x1, x1, x2, x2),
+  y = c(x1, y1, y1, x2),
+  col=adjustcolor("red", 0.05), border=NA
+)
+
+title(main = paste0(years[1], " to ", years[2], " Comparison"), cex.main = 2, line = 2)
+
+#legend
+legend(
+  "topleft",
+  legend = c("posterior median", "posterior 50% CI", "1-to-1 line",
+             "increased", "decreased"),
+  col = c("grey30", "grey30", "grey30",
+          adjustcolor("green", 0.1), adjustcolor("red", 0.1)),
+  pch = c(19, NA, NA, 15, 15),
+  pt.cex = c(2, NA, NA, 2, 2),
+  lty = c(NA, 1, 2, NA, NA),   # lines for CI and 1-to-1
+  lwd = c(NA, 1, 2, NA, NA),   # thickness for CI and 1-to-1
+)
+box(lwd = 2)
+
+legend(par("usr")[1], par("usr")[4] + max(strheight(trimws(gsub("_|and_Environment", " ", names(cat_cols))[-5]))) * 3, 
+       legend = trimws(gsub("_|and_Environment", " ", names(cat_cols))[-5]), 
+       col = cat_cols[-5], pch = 15, pt.cex = 2, cex = 1, horiz = TRUE, xpd = TRUE, box.lwd = 0, bty = "n", 
+       text.width = strwidth(trimws(gsub("_|and_Environment", " ", names(cat_cols))[-5])))
+
+#get the prob of each delta
+beta_diff_prob_pos <- function(s1, s2, n = 1E4){
+  b1 <- rbeta(n, s1[1], s1[2])
+  b2 <- rbeta(n, s2[1], s2[2])
+  mean((b2 - b1) > 0)
+}
+
+prob_improvement <- sapply(1:nitems, function(i){
+  beta_diff_prob_pos(
+    s1 = c(dats[[1]]$beta_shape_1[i], dats[[1]]$beta_shape_2[i]),
+    s2 = c(dats[[2]]$beta_shape_1[i], dats[[2]]$beta_shape_2[i])
+  )
+})
+  
+#now plot the item label
+plot.new()
+plot.window(xlim = c(0,1), ylim = c(0,1))
+pr_delta <- round(prob_improvement[order_items], 2)
+pr_delta[delta[order_items] < 0] <- 1 - pr_delta[delta[order_items] < 0]
+pr_delta <- as.character(pr_delta)
+pr_delta[nchar(pr_delta) == 3] <- paste0(pr_delta[nchar(pr_delta) == 3], "0")
+text_to_plot <- data.frame(rank = rank_items[order_items], 
+                           label = dats[[1]]$label[order_items],
+                           col = cat_cols[cat_key[dats[[as.character(year)]]$label]], 
+                           delta = delta[order_items],
+                           pr_delta = pr_delta)
+
+nchar_pl <- 90
+curr_h <- 1.14
+leading <- 0.02
+for(i in 1:nrow(text_to_plot)){
+  points(-0.1, curr_h, 
+         col = cat_cols[cat_key[text_to_plot$label[i]]], 
+         cex = 2, pch = 19, xpd = NA)
+  text(-0.1, curr_h, labels = text_to_plot$rank[i], col = "white", xpd = NA, cex = 0.75)
+  
+  #calculate text to plot
+  comms <- paste0("(", round(text_to_plot$delta[i], 2), ") ", text_to_plot$label[i],
+                  " (Pr(Δ) ≈ ", text_to_plot$pr_delta[i],")")
+  comms_parts <- str_split(comms, "\n")[[1]]
+  comms_wrapped <- sapply(comms_parts, str_wrap, width = nchar_pl)
+  comms <- paste(comms_wrapped, collapse = "\n")
+  comms_h <- strheight(comms, units = "user", cex = 1)
+  
+  #plot text
+  text(-0.0875, curr_h - comms_h/2, labels = comms, col = 1, xpd = NA, cex = 1, pos = 4)
+  
+  curr_h <- curr_h - comms_h - leading
+}
+
+
+dev.off()

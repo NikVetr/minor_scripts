@@ -71,9 +71,9 @@ E(graph)$loop.angle <- rep(NA, ecount(graph))  # Initialize all angles to NA
 E(graph)$loop.angle[self_loops] <- loop_angles[self_loops]  # Assign angles to self-loops
 
 # plot the graph
+par(mar = c(1,1,1,1), mfrow = c(1,1))
 plot.new()
 plot.window(xlim = c(-1.5, 1.5), ylim = c(-1.5, 2), asp = 1)
-par(mar = c(1,1,1,1))
 plot(
   graph,
   layout = layout_wheel,
@@ -138,7 +138,8 @@ ode_system <- function(t, y, parms) {
 }
 
 n_time <- 6
-times <- c(0, seq(1, 10, length.out = n_time - 1))   # 10 timepoints
+max_time <- 10
+times <- c(0, seq(1, max_time, length.out = n_time - 1))
 n_reps <- 3
 
 # Simulate the system

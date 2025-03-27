@@ -8,7 +8,8 @@ is_showtext_enabled <- function() {
 
 text_distortion <- function(string,
                             font_name = "sans",
-                            device = c("svg", "png")[1]){
+                            device = c("svg", "png")[1], 
+                            font = 1){
   
   if(device == "png"){
     using_png <- T
@@ -44,8 +45,8 @@ text_distortion <- function(string,
   }
   
   #find reasonable plotting parameters
-  str_rat <- c(w = strwidth(cex = 1, string, units = "inches", family = font_name),
-               h = strheight(cex = 1, string, units = "inches", family = font_name))
+  str_rat <- c(w = strwidth(cex = 1, string, units = "inches", family = font_name, font = font),
+               h = strheight(cex = 1, string, units = "inches", family = font_name, font = font))
   str_rat <- str_rat / str_rat[1]
   npix_max <- 1E3
   npix <- round(str_rat / max(str_rat) * npix_max)
@@ -78,7 +79,7 @@ text_distortion <- function(string,
   text(x = text_center["x"],
        y = text_center["y"],
        labels = string, family = font_name,
-       cex = cex2use, xpd = NA, col = 1)
+       cex = cex2use, xpd = NA, col = 1, font = font)
   
   #close the window and device
   dev.off()
@@ -152,7 +153,8 @@ text_distortion <- function(string,
 }
 
 true_text_params <- function(string, target_center, cex = 1, td_res = NULL,
-                             font_name = "sans", device = c("svg", "png")[1]){
+                             font_name = "sans", device = c("svg", "png")[1],
+                             return_td_res = F, font = 1){
   
   if(device == "png"){
     using_png <- T
@@ -161,13 +163,13 @@ true_text_params <- function(string, target_center, cex = 1, td_res = NULL,
   }
   
   if(is.null(td_res)){
-    td_res <- text_distortion(string, font_name, device)
+    td_res <- text_distortion(string, font_name, device, font = font)
   }
   
   est_wh <- c(w = strwidth(string, cex = cex,
-                           units = "user", family = font_name),
+                           units = "user", family = font_name, font = font),
               h = strheight(string, cex = cex,
-                            units = "user", family = font_name))
+                            units = "user", family = font_name, font = font))
   true_wh <- est_wh * td_res$dim_scale
   disp_center_by <- td_res$loc_scale_disp * true_wh
   text_center <- target_center - disp_center_by
@@ -186,10 +188,15 @@ true_text_params <- function(string, target_center, cex = 1, td_res = NULL,
     bbox <- bpoly2bbox(cbpoly)
   }
 
-  return(list(bpoly = bpoly,
+  out <- list(bpoly = bpoly,
               bbox = bbox,
               text_center = text_center,
-              disp_center_by = disp_center_by))
+              disp_center_by = disp_center_by)
+  if(return_td_res){
+    out <- c(out, td_res = list(td_res))
+  }
+  
+  return(out)
 }
 
 bpoly2bbox <- function(bpoly){

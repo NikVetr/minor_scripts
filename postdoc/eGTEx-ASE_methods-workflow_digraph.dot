@@ -1,0 +1,57 @@
+digraph workflow {
+  graph [
+    rankdir = TB          // top-to-bottom like the sketch
+    fontsize = 12
+    labelloc = "t"
+    label = "Study workflow"
+  ];
+
+  node  [shape = box, style = rounded, fontsize = 10];
+  edge  [arrowhead = normal];
+
+  /* ───── 1. Inputs ───── */
+  GTEx   [label = "GTEx data"];               // (striped rectangle)
+  OVC    [label = "OVC"];                     // (small square)
+
+  /* ───── 2. Imputation ───── */
+  Impute [label = "Stochastic\nimputation model"];
+
+  GTEx -> Impute;
+  OVC  -> Impute;
+
+  /* ───── 3. Effects branches ───── */
+  QTL         [label = "QTL effects"];
+  Grade_OVC   [label = "Grade effects\n+ OVC effects"];
+
+  Impute -> {QTL Grade_OVC};
+
+  /* ───── 4. Mixture model ───── */
+  MixModel [label = "Beta–Binomial\nmixture model", shape = note];
+  {QTL Grade_OVC} -> MixModel;
+
+  /* ───── 5. Update coefficients ───── */
+  UpdateCoef [label = "Update observation-level\ncoefficients via marginal\nlikelihood"];
+  MixModel -> UpdateCoef;
+
+  /* ───── 6. Process to derived quantities ───── */
+  Process [label = "Process into three\nderived quantities"];
+  UpdateCoef -> Process;
+
+  ASEconf [label = "ASE conf.\n(AB, ASE logit)"];
+  PrASE   [label = "Pr(ASE | ASE, AB)\n+ logit transform"];
+  PrLOH   [label = "Pr(LOH)\n+ logit transform"];
+
+  Process -> {ASEconf PrASE PrLOH};
+
+  /* ───── 7. Meta-analysis & null models ───── */
+  Meta       [label = "Meta-analysis model for\naverage effect & correlation\n(disattenuation model)"];
+  NullCell   [label = "Fit null model\nwith cell"];
+  NullGrade  [label = "Fit null model\nwith grade"];
+
+  {ASEconf PrASE PrLOH} -> Meta;
+  Meta -> {NullCell NullGrade};
+
+  /* ───── 8. Final summaries ───── */
+  Posterior [label = "Take posterior means\nas summaries"];
+  {NullCell NullGrade} -> Posterior;
+}

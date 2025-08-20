@@ -8,16 +8,25 @@ library(corrplot)
 library(extrafont)
 
 #### read in data ####
-
 randomize_data <- F
 base_dir <- "~/Documents/Documents - nikolai/cam_review/"
 results_dir <- paste0(base_dir, "results/")
 input_dir <- paste0(base_dir, "input/")
 # input_name <- c("2023 WAI Executive Director Evaluation (Responses) - Form Responses 1.csv")[1]
 year <- 2023
-input_name <- paste0(year, " WAI Executive Director Evaluation (Responses).txt")
-file_path <- paste0(input_dir, input_name)
-d <- as.data.frame(data.table::fread(file_path))
+ED_included <- F
+
+if(ED_included){
+  file_path_ED_self <- paste0(input_dir, year, " ED Self-Assessment.txt")
+  d_all <- as.data.frame(data.table::fread(file = file_path_ED_self))
+  ED_index <- nrow(d_all)
+  d <- d_all
+} else {
+  input_name <- paste0(year, " WAI Executive Director Evaluation (Responses).txt")
+  file_path <- paste0(input_dir, input_name)
+  d <- as.data.frame(data.table::fread(file_path))
+}
+
 likert <- c("Strongly Disagree", "Disagree", "Neither Agree nor Disagree" ,"Agree" ,"Strongly Agree")
 d[d == 0] <- NA
 d[d == "N/A"] <- NA
@@ -96,7 +105,7 @@ colnames(d) <- as.character(sapply(colnames(d), function(x){
 #                "Please put any comments on the survey as a whole here! Responses here will not be shared with Cam directly and will only be visible to the board. You may also use this space to privately respond to the above questions.",
 #                "Score")
 # colnames(d) <- col.names
-inverted_qs <- col.names[c(10, 12, 26)]
+inverted_qs <- colnames(d)[c(10, 12, 26)]
 
 d <- d[,-1]
 d <- d[-1,]
@@ -115,7 +124,6 @@ cat_key <- do.call(rbind, sapply(1:length(ds), function(i) cbind(colnames(ds[[i]
 cat_key <- setNames(cat_key[,2], cat_key[,1])
 cat_cols <- setNames(RColorBrewer::brewer.pal(5, "Dark2"), names(ds))
 
-
 #### some quick analyses of these data ####
 
 #construct table
@@ -129,6 +137,14 @@ if(randomize_data){
   }
 }
 
+#remove Cam from data
+if(ED_included){
+  d_ED <- d[ED_index-1,]
+  d <- d[-(ED_index-1),]
+  dn_ED <- dn[ED_index-1,, drop = F]
+  dn <- dn[-(ED_index-1),]
+  ED_scores <- apply(dn_ED, 2, mean, na.rm = TRUE)
+}
 
 #compute metrics
 item_means <- apply(dn, 2, mean, na.rm = TRUE)
@@ -182,8 +198,6 @@ person_order <- hclust(as.dist(1-person_corrmat))$order
 person_corrmat <- person_corrmat[person_order,person_order]
 corrplot(as.matrix(person_corrmat), method = "square")
 
-
-
 #### prep fig metadata ####
 col_dat <- data.frame(comms_h = numeric(4), 
                        base_h = numeric(4),
@@ -199,6 +213,12 @@ for(si in 1:4){
   
   comms <- ds[[si]][,length(ds[[si]])]
   
+  #mark Cam's response here
+  if(ED_included){
+    if(!is.na(comms[ED_index-1])){
+      comms[ED_index-1] <- paste0("Cam's Reflection:\n\n", comms[ED_index-1])
+    }
+  }
   #fix encoding issue
   comms <- vapply(comms, function(s) {
     r <- charToRaw(enc2native(s))
@@ -247,17 +267,26 @@ for(si in 1:4){
 }
 
 #write sumstats to disk
-item_data <- data.frame(beta_sds = item_beta_sds, 
-                        beta_mean = item_beta_means,
-                        label = names(item_beta_means),
-                        beta_90CI_lb = item_90CI_beta[,1],
-                        beta_90CI_ub = item_90CI_beta[,2],
-                        beta_50CI_lb = item_50CI_beta[,1],
-                        beta_50CI_ub = item_50CI_beta[,2],
-                        beta_shape_1 = item_beta_shapes[,1],
-                        beta_shape_2 = item_beta_shapes[,2],
-                        beta_median = item_beta_median
-                        )
+num_responses_per_category <- do.call(rbind, lapply(apply(dn, 2, factor, levels = 1:5, simplify = F), table))
+colnames(num_responses_per_category) <- paste0("# respondents answering \"", likert, "\"")
+reversed_inds <- which(rownames(num_responses_per_category) %in% inverted_qs)
+for(ri in reversed_inds){
+  num_responses_per_category[ri,] <- rev(num_responses_per_category[ri,])
+}
+
+item_data <- data.frame(
+  label = names(item_beta_means),
+  beta_mean = item_beta_means,
+  beta_sds = item_beta_sds, 
+  beta_90CI_lb = item_90CI_beta[,1],
+  beta_90CI_ub = item_90CI_beta[,2],
+  beta_50CI_lb = item_50CI_beta[,1],
+  beta_50CI_ub = item_50CI_beta[,2],
+  beta_shape_1 = item_beta_shapes[,1],
+  beta_shape_2 = item_beta_shapes[,2],
+  beta_median = item_beta_median,
+  "sorted_scores (1=worst, 5=best)" = sapply(apply(dn, 2, sort), paste0, collapse = "; "),
+  num_responses_per_category)
 data.table::fwrite(item_data, file = paste0(results_dir, year, "_item_summary_data.csv"))
 
 #### one big figure ####
@@ -359,6 +388,14 @@ for(i in 1:ncol(subds)){
        lwd = 2)
   # points(x=mean_loc, y=par("usr")[3] - diff(par("usr")[3:4])/10, pch = 23, cex = 3, col = 1, bg = "#c1000f")
   
+  #plot Cam's self-assessment
+  if(ED_included){
+    ED_score <- ED_scores[qtext]
+    ED_loc <- mean(unit_intervals[ED_score + c(0,1)])
+    points(x = ED_loc, y = counts[ED_score+1], pch = 18, col = 1, cex = 5.5, xpd = NA)
+    points(x = ED_loc, y = counts[ED_score+1], pch = 18, col = "#b306c2", cex = 5, xpd = NA)
+  }
+  
   #annotation text
   cronbachs_alpha_diff <- cronbachs_alpha$total$raw_alpha - cronbachs_alpha$alpha.drop[qtext,"raw_alpha"]
   
@@ -377,10 +414,10 @@ for(i in 1:ncol(subds)){
        y = annot_y, labels = annot, pos = 4, cex = 1.25)
   
   annot_y <- annot_y - strheight(annot, cex = 1.25) * 1.1
-  annot <- latex2exp::TeX(paste0("$\\Delta$ Cronbach's $\\alpha$ = ", 
+  annot <- latex2exp::TeX(paste0("$\\Delta$$\\alpha$ = ", #for diff in cronbach's alpha
                                  round(cronbachs_alpha$total$raw_alpha, 2), " - ", 
                                  round(cronbachs_alpha$total$raw_alpha - cronbachs_alpha_diff, 2), 
-                                 " $\\approx$ ", round(cronbachs_alpha_diff, 2), 
+                                 "$\\approx$ ", round(cronbachs_alpha_diff, 2), 
                                  " (#", rank(cronbachs_alpha$alpha.drop[,"raw_alpha"])[which(qtext == rownames(cronbachs_alpha$alpha.drop))], "/", ncol(dn), ")"))
   text(x = par("usr")[1] + ifelse(which.max(counts) == 1, bp[2] - diff(bp[1:2]) / 2, 0), 
        y = annot_y, labels = annot, pos = 4, cex = 1.25)
@@ -538,7 +575,8 @@ t2w <- list(latex2exp::TeX(paste0("$\\hat{\\mu}$ = Sample Mean")),
             latex2exp::TeX(paste0("item-mean \\textit{r} is Pearson's \\textit{r} between item score and overall score")),
             latex2exp::TeX(paste0("#s in (parentheses) indicate ranking")),
             latex2exp::TeX(paste0("Cronbach's $\\alpha$ measures internal consistency")),
-            latex2exp::TeX(paste0("$\\hat{\\sigma}$ = Sample Standard Deviation"))
+            latex2exp::TeX(paste0("$\\hat{\\sigma}$ = Sample Standard Deviation")),
+            latex2exp::TeX(paste0(ifelse(ED_included, "◆ = Cam's Self-Assessment", "")))
             )
             
 txt_cex <- 2
@@ -555,8 +593,8 @@ mean_loc <- 5
 item_90CI_beta_locs <- c(4,6)
 item_90CI_betabinom_locs <- c(2,8)
 
-ybox_locs <- c(par("usr")[3] - diff(par("usr")[3:4])/3, 
-               par("usr")[3] - diff(par("usr")[3:4])/3.25)
+ybox_locs <- c(par("usr")[3] - diff(par("usr")[3:4])/2.625, 
+               par("usr")[3] - diff(par("usr")[3:4])/2.875)
 segments(x0 = item_90CI_betabinom_locs[1], x1 = item_90CI_betabinom_locs[2], 
          y0 = mean(ybox_locs), y1 = mean(ybox_locs),
          lwd = 2)
@@ -585,7 +623,6 @@ text(x = item_90CI_betabinom_locs[2] + 0.25, y = mean(ybox_locs),
 
 dev.off()
 
-#####
 
 fr <- d[,(ncol(d)-5):(ncol(d)-2)]
 

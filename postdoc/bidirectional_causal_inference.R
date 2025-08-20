@@ -157,8 +157,8 @@ fit_xy_pcr <- summary(lm(y1 ~ 1 + x1_PCs))$coefficients[paste0("x1_PCs", 1:p), 1
 fit_xz_pcr <- summary(lm(z2 ~ 1 + x2_PCs))$coefficients[paste0("x2_PCs", 1:p), 1:2]
 # head(sort(abs(cov2cor(vcov(lm(y1 ~ 1 + x1_PCs))[-1,-1])[upper.tri(diag(p))]), T))
 # head(sort(abs(cov2cor(vcov(lm(z2 ~ 1 + x2_PCs))[-1,-1])[upper.tri(diag(p))]), T))
-fit_xy_pcr - fit_xy_pcr_coerced
-fit_xz_pcr - fit_xz_pcr_coerced
+# fit_xy_pcr - fit_xy_pcr_coerced
+# fit_xz_pcr - fit_xz_pcr_coerced
 
 #### run simple causal regression ####
 par(mfrow = c(1, 3), mar = c(5,5,2,2))
@@ -204,7 +204,7 @@ legend(x = 15, y = -15,
 summary(lm(mfit_xz ~ 1 + mfit_xy))$coefficients[2,1:2]
 summary(lm(mfit_xz_pcr ~ 1 + mfit_xy_pcr))$coefficients[2,1:2]
 summary(lm(fit_xz_chol$Estimate ~ 1 + fit_xy_chol$Estimate))$coefficients[2,1:2]
-
+b_yz #true value
 
 #eventually, PC coefs get to be random noise?
 #as you add random noise, slope gets increasingly confident at 0?
@@ -255,7 +255,6 @@ fishers_method(yz_pvals)
 fishers_method(zy_pvals)
 fishers_method(pred_yz_pvals)
 fishers_method(pred_zy_pvals)
-
 
 #what if we just predict one of these?
 pred_y2 <- predict(lm(y1 ~ 1 + x1), newdata = data.frame(x2))

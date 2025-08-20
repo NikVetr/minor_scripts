@@ -8,7 +8,7 @@ library(destiny)
 library(vegan)
 library(torch)
 
-#functions
+#### functions ####
 
 # Function to compute the overlap fraction given a displacement d
 overlap_fraction <- function(d, x, y) {
@@ -49,19 +49,9 @@ sample_ksphere <- function(num_points, k) {
   return(points)
 }
 
-# Number of points to sample per hypersphere
-num_points <- 200
-k <- 2  # User-specified dimension of the sphere
-r1 <- 1 #radius of the first hypersphere
-r2 <- 3 #squared radius of the second hypersphere
 
-# Generate points on the surface of the first k-sphere centered at the origin
-points1 <- sample_ksphere(num_points, k) * r1
 
-# Generate points on the surface of the second k-sphere centered at (1, 0, 0, ..., 0) (shift along the first axis)
-points2 <- sample_ksphere(num_points, k) * r2
-
-#or from some other surface
+#use points from some other shape
 get_shape <- function(p, n = 1000) {
   # Define theta for parametric representation
   # theta <- seq(0, 2 * pi, length.out = n)
@@ -73,20 +63,8 @@ get_shape <- function(p, n = 1000) {
   
   return(data.frame(x=x, y=y))
 }
-p <- 3
-points2 <- as.matrix(get_shape(p, n = num_points))
-points2 <- points2 * r2
 
-target_overlap <- 0.0
-disp <- 0.0
-# disp <- find_displacement(points1, points2, p = target_overlap, max_distance = 20)
-points2[, 1] <- points2[, 1] + disp  # Shift center by 1 along the first axis
-
-# Combine points into a single dataset
-points <- rbind(points1, points2)
-labels <- factor(c(rep(1, num_points), rep(2, num_points)))  # Labels for visualization
-
-#convert to spherical?
+#express cartesian points in spherical coords
 cartesian_to_spherical <- function(cart) {
   cart <- as.matrix(cart)
   n <- nrow(cart)
@@ -116,51 +94,6 @@ cartesian_to_spherical <- function(cart) {
   return(result)
 }
 
-# points <- cartesian_to_spherical(points)
-
-# Step 2: Apply kPCA with different kernels
-# RBF Kernel
-kpca_rbf <- kpca(~., data = as.data.frame(points), kernel = "rbfdot", 
-                 kpar = list(sigma = 0.5), features = 4)
-points_rbf_transformed <- rotated(kpca_rbf)
-eig(kpca_rbf) / sum(eig(kpca_rbf))
-
-# other kernel
-kern2use <- c("rbfdot", #1
-              "polydot", #2
-              "vanilladot", #3
-              "tanhdot", #4
-              "laplacedot", #5
-              "besseldot",#6
-              "anovadot",#7
-              "splinedot")[c(8)]
-
-points_other_transformed <- points
-for(i in 1:length(kern2use)){
-  kpca_other <- kpca(~., data = as.data.frame(points_other_transformed), kernel = kern2use[i], features = 2, kpar = list())
-  points_other_transformed <- rotated(kpca_other)
-}
-
-# Linear Kernel
-kpca_linear <- prcomp(points)
-points_linear_transformed <- kpca_linear$x[,1:2]
-
-#laplacian diffusion map
-diff_map <- DiffusionMap(points)
-diff_coords <- eigenvectors(diff_map)
-
-#try isomap out
-# dist_matrix <- dist(points)
-# isomap_result <- isomap(dist_matrix, k = k, ndim = 2)
-# isomap_coords <- scores(isomap_result)
-isomap_coords <- NA
-
-#try umap and tsne
-umap_result <- uwot::umap(points)
-tsne_result <- Rtsne::Rtsne(points)$Y
-
-#try a small VAE
-points_tensor <- torch_tensor(as.matrix(points))
 
 VAE <- nn_module(
   "VAE",
@@ -171,17 +104,17 @@ VAE <- nn_module(
     self$latent_dim <- latent_dim
     self$hidden_dims <- hidden_dims
     
-    # -------------------
+    # -
     # Define Encoder
-    # -------------------
+    # -
     self$enc_fc1 <- nn_linear(input_dim, hidden_dims[1])
     self$enc_fc2 <- nn_linear(hidden_dims[1], hidden_dims[2])
     self$enc_mu <- nn_linear(hidden_dims[2], latent_dim)        # Mean output
     self$enc_logvar <- nn_linear(hidden_dims[2], latent_dim)    # Log variance output
     
-    # -------------------
+    # -
     # Define Decoder
-    # -------------------
+    # -
     self$dec_fc1 <- nn_linear(latent_dim, hidden_dims[2])
     self$dec_fc2 <- nn_linear(hidden_dims[2], hidden_dims[1])
     self$dec_out <- nn_linear(hidden_dims[1], input_dim)        # Reconstructed output
@@ -225,8 +158,121 @@ vae_loss <- function(recon_x, x, mu, logvar) {
   recon_loss + kl_loss
 }
 
-#train VAE
 
+#### specify sampling params ####
+use_spiral <- F
+pointy_transform <- F #should we make the second dimension some weird shape?
+p <- 3 #if so, how many points should that weird shape have?
+num_points <- 200
+noise_sd <- 0.1
+k <- 3  # User-specified dimension of the sphere
+r1 <- 1 #radius of the first hypersphere
+r2 <- 2 #radius of the second hypersphere
+disp <- 0 #displacement between centroids of shapes
+
+# Generate points on the surface of the first k-sphere centered at the origin
+points1 <- sample_ksphere(num_points, k) * r1
+
+# Generate points on the surface of the second k-sphere centered at (1, 0, 0, ..., 0) (shift along the first axis)
+points2 <- sample_ksphere(num_points, k) * r2
+
+if(pointy_transform){
+  points2 <- as.matrix(get_shape(p, n = num_points)) * r2
+}
+
+target_overlap <- 0.5
+# disp <- find_displacement(points1, points2, p = target_overlap, max_distance = 20)
+points2[, 1] <- points2[, 1] + disp  # Shift center by 1 along the first axis
+
+# Combine points into a single dataset
+points <- rbind(points1, points2)
+
+#can also try a spiral?
+if(use_spiral){
+  max_t <- 9 * pi - pi/2
+  t <- seq(0, max_t, length.out = num_points * 2)
+  x <- sin(t) * t
+  y <- cos(t) * t
+  points <- cbind(x, y)
+  points <- points / sd(points) * 2
+}
+
+labels <- factor(c(rep(1, num_points), rep(2, num_points)))  # Labels for visualization
+
+# points <- cartesian_to_spherical(points)
+
+#add noise
+points <- points + rnorm(length(points)) * noise_sd 
+
+#### plot initial pts ####
+cols <- adjustcolor(c(1,2), 0.5)[as.numeric(labels)]
+par(mfcol = c(3,4), mar = c(2,2,1,1))
+if (k == 2) {
+  # Plot original points in 2D if k = 2
+  # par(mfrow = c(2,2), mar = c(4,4,2,2))
+  plot(points[,1], points[,2], col = cols, 
+       pch = 19, main = paste0("Orig. Pts (n = ", num_points, ")"), 
+       xlab = "", ylab = "")
+} else if (k == 3) {
+  # Plot original points in 3D if k = 3
+  # par(mfrow = c(1,1), mar = c(4,4,2,2))
+  scatterplot3d(points[,1], points[,2], points[,3], 
+                color = as.numeric(labels), pch = 19, main = "Original Points in 3D", xlab = "X", ylab = "Y", zlab = "Z")
+}
+
+
+#### fit projections ####
+# RBF Kernel PCA
+kpca_rbf <- function(){}
+kpca_rbf <- kpca(~., data = as.data.frame(points), kernel = "rbfdot", 
+                 kpar = list(sigma = 0.5), features = 4)
+points_rbf_transformed <- rotated(kpca_rbf)
+eig(kpca_rbf) / sum(eig(kpca_rbf))
+
+# other kernel
+kpca_other <- function(){}
+kern2use <- c("rbfdot", #1
+              "polydot", #2
+              "vanilladot", #3
+              "tanhdot", #4
+              "laplacedot", #5
+              "besseldot",#6
+              "anovadot",#7
+              "splinedot")[c(8)]
+
+points_other_transformed <- points
+for(i in 1:length(kern2use)){
+  kpca_other <- kpca(~., data = as.data.frame(points_other_transformed), kernel = kern2use[i], features = 2, kpar = list())
+  points_other_transformed <- rotated(kpca_other)
+}
+
+# Linear Kernel
+kpca_linear <- function(){}
+kpca_linear <- prcomp(points)
+points_linear_transformed <- kpca_linear$x[,1:2]
+
+#laplacian diffusion map
+diffusion_map <- function(){}
+diff_map <- DiffusionMap(points)
+diff_coords <- eigenvectors(diff_map)
+
+#try isomap out
+isomap <- function(){}
+# dist_matrix <- dist(points)
+# isomap_result <- isomap(dist_matrix, k = k, ndim = 2)
+# isomap_coords <- scores(isomap_result)
+isomap_coords <- NA
+
+#try umap and tsne
+umap_tsne <- function(){}
+umap_result <- uwot::umap(points)
+tsne_result <- Rtsne::Rtsne(points)$Y
+
+#try a small VAE
+points_tensor <- torch_tensor(as.matrix(points))
+
+#train VAE
+VAE_model <- function(){}
 # Define model parameters
 hidden_dims <- c(8, 4)
 latent_dim <- k
@@ -263,58 +309,43 @@ VAE_repr <- as.matrix(vae$encode(points_tensor)[[1]])
 # clusters_upgma <- cutree(as.hclust(upgma_result), k = 2)
 
 #### plot results ####
-par(mfrow = c(3,4), mar = c(2,2,1,1))
-if (k == 2) {
-  # Plot original points in 2D if k = 2
-  # par(mfrow = c(2,2), mar = c(4,4,2,2))
-  plot(points[,1], points[,2], col = as.numeric(labels), 
-       pch = 19, main = paste0("Orig. Pts (n = ", num_points, ")"), 
-       xlab = "", ylab = "")
-}
-
-if (k == 3) {
-  # Plot original points in 3D if k = 3
-  # par(mfrow = c(1,1), mar = c(4,4,2,2))
-  scatterplot3d(points[,1], points[,2], points[,3], color = as.numeric(labels), pch = 19, main = "Original Points in 3D", xlab = "X", ylab = "Y", zlab = "Z")
-}
 
 # Plot transformed points by kPCA (RBF)
-plot(points_rbf_transformed[,1:2], col = as.numeric(labels), pch = 19, main = "kPCA (RBF)", xlab = "", ylab = "")
+plot(points_rbf_transformed[,1:2], col = cols, pch = 19, main = "kPCA (RBF)", xlab = "", ylab = "")
 
 # Plot transformed points by kPCA (RBF) later PCs
-# plot(points_rbf_transformed[,3:4], col = as.numeric(labels), pch = 19, main = "kPCA (RBF)", xlab = "PC3", ylab = "PC4")
+# plot(points_rbf_transformed[,3:4], col = cols, pch = 19, main = "kPCA (RBF)", xlab = "PC3", ylab = "PC4")
 # legend("topright", legend = c("hsph 1", "hsph 2"), col = c(1, 2), pch = 19)
 
 # Plot transformed points by kPCA (othernomial)
-plot(points_other_transformed, col = as.numeric(labels), pch = 19, main = paste0("kPCA (", kern2use, ")"), xlab = "", ylab = "")
+plot(points_other_transformed, col = cols, pch = 19, main = paste0("kPCA (", kern2use, ")"), xlab = "", ylab = "")
 
 # Plot transformed points by kPCA (Linear)
-plot(points_linear_transformed, col = as.numeric(labels), pch = 19, main = "Linear PCA", xlab = "", ylab = "")
+plot(points_linear_transformed, col = cols, pch = 19, main = "Linear PCA", xlab = "", ylab = "")
 
 # Plot transformed points by diffusion map
-plot(diff_coords, col = as.numeric(labels), pch = 19, main = "Diffusion Mapping", xlab = "", ylab = "")
+plot(diff_coords[,1:2], col = cols, pch = 19, main = "Diffusion Mapping", xlab = "", ylab = "")
 
 # Plot transformed points by isomap
 if(!is.na(isomap_coords)){
-  plot(isomap_coords, col = as.numeric(labels), pch = 19, main = "Isomapping", xlab = "", ylab = "")
+  plot(isomap_coords, col = cols, pch = 19, main = "Isomapping", xlab = "", ylab = "")
 }
 
 # Plot transformed points by VAE
-for(i in 1:floor(ncol(VAE_repr) / 2)){
-  plot(VAE_repr[,i*2-1:0], col = adjustcolor(as.numeric(labels), 1), pch = 19, main = "VAE bn", 
-       xlab = paste0("Axis ", i*2-1), ylab = paste0("Axis ", i*2))
-}
-
+# for(i in 1:floor(ncol(VAE_repr) / 2)){
+#   plot(VAE_repr[,i*2-1:0], col = adjustcolor(as.numeric(labels), 1), pch = 19, main = "VAE bn", 
+#        xlab = paste0("Axis ", i*2-1), ylab = paste0("Axis ", i*2))
+# }
 
 # Plot transformed points by umap
-plot(umap_result, col = as.numeric(labels), pch = 19, main = "UMAP", xlab = "", ylab = "")
+plot(umap_result, col = cols, pch = 19, main = "UMAP", xlab = "", ylab = "")
 
 #plot tSNE results
-plot(tsne_result, col = as.numeric(labels), pch = 19, main = "tSNE", xlab = "", ylab = "")
+plot(tsne_result, col = cols, pch = 19, main = "tSNE", xlab = "", ylab = "")
 
 
 plot.new()
-legend("topright", legend = c("hypersphere 1", "hypersphere 2"), col = c(1, 2), pch = 19)
+legend("topright", legend = c("group 1", "group 2"), col = c(1, 2), pch = 19)
 
 #clusters obtained from hierarchical clustering
 # mean(clusters == labels)

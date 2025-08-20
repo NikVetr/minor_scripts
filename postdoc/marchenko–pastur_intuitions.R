@@ -161,7 +161,8 @@ k <- 20
 hist(replicate(1000, dkrot(k, runif(choose(k, 2), 0, 2*pi))), breaks = 100)
 
 k <- 20
-rotmat <- dkrot(k, runif(choose(k, 2), 0, 2*pi))
+thetas <- runif(choose(k, 2), 0, 2*pi)
+rotmat <- dkrot(k, thetas)
 # rotmat <- random_orthonormal_matrix(k)
 rotv <- eigen(rotmat)$vectors
 rotl <- eigen(rotmat)$values

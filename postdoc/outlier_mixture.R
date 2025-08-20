@@ -18,7 +18,7 @@ stan_code <- "
 data {
   int<lower=1> N;
   vector[N] y;
-}4
+}
 parameters {
   positive_ordered[2] sigma;
   real<lower=0, upper=1> theta;
@@ -112,11 +112,11 @@ text(pusr[1] + wh[1]/40, pusr[4] - wh[2]/20, sum(!comp2_thresh$pp & !comp2_thres
 
 #### gampois ####
 set.seed(1)
-n <- 100000
+n <- 1000
 mu <- rlnorm(n, meanlog = 5, sdlog = 1)
 p1 <- 0.95
 p <- c(p1, 1-p1)
-iphi <- c(0.1,20)
+iphi <- c(1,20)
 comp <- sample(1:2, size = n, replace = TRUE, prob = p) #component indices
 y <- rnbinom(n, size = 1/iphi[comp], mu = mu)
 
@@ -131,7 +131,7 @@ parameters {
   real<lower=0, upper=1> theta;
 }
 model {
-  iphi ~ normal(0,1);
+  iphi ~ normal(0,10);
   theta ~ beta(5,1);
 
   // Mixture likelihood
@@ -193,6 +193,7 @@ hist(true_comp1, breaks = 0:50/50, col = adjustcolor("darkblue", 0.5), freq = F)
 hist(true_comp2, breaks = 0:50/50, col = adjustcolor("darkorange", 0.5), add = T, freq = F)
 
 #compare to single distribution "z-score"
+alpha <- 0.05
 sample_iphi <- as.numeric(MASS::theta.ml(y, mu))
 pvals <- 1-abs(0.5-pnbinom(y, size = sample_iphi, mu = mu)) * 2
 pvals_adj <- p.adjust(pvals, method = "BY")
@@ -204,8 +205,8 @@ pvals_adj_jittered[pvals_adj_jittered > 1] <- 1
 plot(mean_p_comp2_jittered, pvals_adj_jittered, col = adjustcolor(c("darkblue", "darkorange"), 0.5)[comp], 
      xlab = "outlier posterior probability (mixture model, jittered)", 
      ylab = "outlier BY-adjusted p-value (jittered)")
-abline(h = 0.05, lty = 2)
-abline(v = 0.95, lty = 2)
+abline(h = alpha, lty = 2)
+abline(v = 1-alpha, lty = 2)
 pusr <- par("usr")
 wh <- c(diff(pusr[1:2]), diff(pusr[3:4]))
 leg <- legend(x = pusr[1], y = pusr[4], col = adjustcolor(c("darkblue", "darkorange", "black"), 0.5), pch = c(19,19,NA), 
@@ -214,7 +215,7 @@ leg <- legend(x = pusr[1], y = pusr[4], col = adjustcolor(c("darkblue", "darkora
 legend(x = pusr[1], y = pusr[4] + leg$rect$h, col = adjustcolor(c("darkblue", "darkorange", "black"), 0.5), pch = c(19,19,NA), 
        legend = c("true component 1 (common, low variance)", "true component 2 (rare, high variance)", "probability threshold"), 
        lty = c(NA,NA,2), xpd = NA, title = "neg-binomial outlier calling", title.font = 2)
-comp2_thresh <- data.frame(pp = mean_p_comp2[comp==2] > 0.95, pval = pvals_adj[comp==2] < 0.05)
+comp2_thresh <- data.frame(pp = mean_p_comp2[comp==2] > (1-alpha), pval = pvals_adj[comp==2] < alpha)
 text(pusr[2] - wh[1]/40, pusr[3] + wh[2]/20, sum(comp2_thresh$pp & comp2_thresh$pval), font = 2, col = 1)
 text(pusr[2] - wh[1]/40, pusr[4] - wh[2]/20, sum(comp2_thresh$pp & !comp2_thresh$pval), font = 2, col = 1)
 text(pusr[1] + wh[1]/40, pusr[4] - wh[2]/20, sum(!comp2_thresh$pp & !comp2_thresh$pval), font = 2, col = 1)

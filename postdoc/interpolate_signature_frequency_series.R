@@ -309,255 +309,6 @@ linear_smooth_interpolate <- function(d1 = sx1, d2 = sx2, props = props){
   
 }
 
-#### read in data ####
-nv <- read.csv("~/data/nikvetr_sig_ts.csv")
-nl <- read.csv("~/data/nl_sig_ts.csv")
-
-#get block inds
-nv$i <- c(1, cumsum(diff(nv$t) > 50) + 1)
-nl$i <- c(1, cumsum(diff(nl$t) > 50) + 1)
-
-#subset to just the first block for now
-nv <- nv[nv$i == 1,]
-nl <- nl[nl$i == 1,]
-
-#transform to equal lengths
-orig_res <- c(nl = nrow(nl), nv = nrow(nv))
-orig_res_rat <- orig_res / max(orig_res)
-max_len <- max(c(nrow(nl), nrow(nv)))
-nl2 <- interpolate_to_length_kd(x = nl[,c("x", "y")], n = max_len, 
-                                segs = nl$i, equal_increments = T)
-nv2 <- interpolate_to_length_kd(x = nv[,c("x", "y")], n = max_len, 
-                                segs = nv$i, equal_increments = T)
-plot(nl2$x, -nl2$y, col = nl2$i)
-plot(nv2$x, -nv2$y, col = nv2$i)
-
-#center text on origin
-nvw <- diff(range(nv2$x))
-nvh <- diff(range(nv2$y))
-nv2$x <- nv2$x - min(nv2$x) - nvw / 2
-nv2$y <- nv2$y - min(nv2$y) - nvh / 2
-  
-nlw <- diff(range(nl2$x))
-nlh <- diff(range(nl2$y))
-nl2$x <- nl2$x - min(nl2$x) - nlw / 2
-nl2$y <- nl2$y - min(nl2$y) - nlh / 2
-
-#get equal length text lines
-sig_lengths <- c(nv = sum(line_lengths(nv2[,c("x", "y")], nv2$i)), 
-                 nl = sum(line_lengths(nl2[,c("x", "y")], nl2$i)))
-sig_props <- sig_lengths / max(sig_lengths)
-nv2[,c("x", "y")] <- nv2[,c("x", "y")] * sig_props["nv"]
-nl2[,c("x", "y")] <- nl2[,c("x", "y")] * sig_props["nl"]
-
-#replace w/ new vars
-nv <- nv2
-nl <- nl2
-
-#invert vertical axis
-nv$y <- -nv$y
-nl$y <- -nl$y
-
-plot(nl$x, nl$y, type = "l", col = 0)
-for(i in 1:max(nl$i)){
-  lines(nl$x[nl$i == i], nl$y[nl$i == i], type = "l", col = 2, lwd = 2)
-}
-
-plot(nv$x, nv$y, type = "l", col = 0)
-for(i in 1:max(nv$i)){
-  lines(nv$x[nv$i == i], nv$y[nv$i == i], type = "l", col = 2, lwd = 2)
-}
-
-#### smoothed signature processing ####
-base_threshold_multiplier <- 50
-prop_var <- 0.999
-use_var_thresh <- T
-nls <- lapply(1:max(nl$i), function(i){
-  
-  inds <- which(nl$i == i)
-  
-  sx <- nl$x[inds]
-  sx <- c(sx, rev(sx))
-  if(use_var_thresh){
-    sx <- unlist(wavelet_smooth(sx, var_thresh = prop_var))  
-  } else {
-    sx <- unlist(wavelet_smooth_noise_thresh(sx, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nl"]^1.5))  
-  }
-  
-  
-  sx <- sx[1:length(inds)]
-  
-  sy <- nl$y[inds]
-  sy <- c(sy, rev(sy))
-  if(use_var_thresh){
-    sy <- unlist(wavelet_smooth(sy, var_thresh = prop_var))
-  } else {
-    sy <- unlist(wavelet_smooth_noise_thresh(sy, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nl"]^1.5))
-  }
-  sy <- sy[1:length(inds)]
-  
-  return(data.frame(x = sx, y = sy, i = i))
-})
-
-nvs <- lapply(1:max(nv$i), function(i){
-  
-  inds <- which(nv$i == i)
-  
-  sx <- nv$x[inds]
-  sx <- c(sx, rev(sx))
-  if(use_var_thresh){
-    sx <- unlist(wavelet_smooth(sx, var_thresh = prop_var))
-  } else {
-    sx <- unlist(wavelet_smooth_noise_thresh(sx, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nv"]^1.5))
-  }
-  sx <- sx[1:length(inds)]
-  
-  sy <- nv$y[inds]
-  sy <- c(sy, rev(sy))
-  if(use_var_thresh){
-    sy <- unlist(wavelet_smooth(sy, var_thresh = prop_var))
-  } else {
-    sy <- unlist(wavelet_smooth_noise_thresh(sy, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nv"]^1.5))
-  }
-  sy <- sy[1:length(inds)]
-  
-  return(data.frame(x = sx, y = sy, i = i))
-})
-
-
-#basic plotting
-par(mfrow = c(2,1))
-plot(nl$x, nl$y, type = "l", col = 0)
-for(i in 1:max(nl$i)){
-  lines(nls[[i]]$x, nls[[i]]$y, type = "l", col = 1, lwd = 2)
-}
-
-plot(nv$x, nv$y, type = "l", col = 0)
-for(i in 1:max(nv$i)){
-  lines(nvs[[i]]$x, nvs[[i]]$y, type = "l", col = 1, lwd = 2)
-}
-
-#### interpolation ####
-
-#wavelet interpolation?
-props <- 0:4/4
-inds <- which(nl$i == 1)
-
-sx1 <- nl$x[inds]
-sx1 <- c(sx1, rev(sx1))
-sx2 <- nv$x[inds]
-sx2 <- c(sx2, rev(sx2))
-
-sxs <- wavelet_smooth_interpolate(d1 = sx1, d2 = sx2, 
-                           threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
-                           props = props)
-
-sy1 <- nl$y[inds]
-sy1 <- c(sy1, rev(sy1))
-sy2 <- nv$y[inds]
-sy2 <- c(sy2, rev(sy2))
-
-sys <- wavelet_smooth_interpolate(d1 = sy1, d2 = sy2, 
-                                  threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
-                                  props = props)
-
-#plot it
-i <- 5
-ranges <- rbind(range(sxs[[i]]), range(sys[[i]]))
-plot(1, 1, xlim = ranges[1,], ylim = ranges[2,], type = "l", col = 0, 
-     xaxt = "n", yaxt = "n", frame = F, xlab = "", ylab = "")
-lines(unlist(sxs[[i]]), unlist(sys[[i]]), type = "l", col = 1, lwd = 2)
-
-#linear interpolation
-sxs_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sx1, threshold_multiplier = 100), 
-                                   d2 = wavelet_smooth(sx2, threshold_multiplier = 100), props = props)
-sys_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sy1, threshold_multiplier = 100), 
-                                   d2 = wavelet_smooth(sy2, threshold_multiplier = 100), props = props)
-
-#now write to disk and create animation
-anim_dir <- "~/Pictures/sig_interp/"
-if(!dir.exists(anim_dir)){dir.create(anim_dir)}
-frames_dir <- paste0(anim_dir, "frames/")
-if(!dir.exists(frames_dir)){dir.create(frames_dir)}
-if(length(list.files(frames_dir)) > 0){file.remove(paste0(frames_dir, list.files(frames_dir)))}
-
-fps <- 60
-thin <- 1
-fps <- 60
-ns <- 2.5
-thin <- 1
-frame_indices <- 1:(fps*ns)
-plotting_indices <- seq(1, max(frame_indices), by = thin)
-props <- 1:length(frame_indices) / length(frame_indices)
-
-inds <- which(nl$i == 1)
-
-sxs <- wavelet_smooth_interpolate(d1 = sx1, d2 = sx2, 
-                                  threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
-                                  props = props)
-sys <- wavelet_smooth_interpolate(d1 = sy1, d2 = sy2, 
-                                  threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
-                                  props = props)
-
-sxs_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sx1, threshold_multiplier = 100), 
-                                   d2 = wavelet_smooth(sx2, threshold_multiplier = 100), props = props)
-sys_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sy1, threshold_multiplier = 100), 
-                                   d2 = wavelet_smooth(sy2, threshold_multiplier = 100), props = props)
-
-sxs_l <- linear_smooth_interpolate(d1 = fourier_smooth(sx1), 
-                                   d2 = fourier_smooth(sx2), props = props)
-sys_l <- linear_smooth_interpolate(d1 = fourier_smooth(sy1), 
-                                   d2 = fourier_smooth(sy2), props = props)
-
-use_multicore <- T
-if(use_multicore){
-  if(exists("cl")){
-    stopCluster(cl)
-    remove(cl)
-  }
-  if(!exists("cl")){
-    cl <- makeCluster(12, outfile="")
-    registerDoParallel(cl)
-  }
-  getDoParWorkers()
-}
-
-foreach(fi=1:length(plotting_indices), .packages = c("png")) %dopar% {
-  
-  i <- plotting_indices[fi]
-  
-  png(filename = paste0(frames_dir, paste0(rep(0, 5 - nchar(i)), collapse = ""), i, ".png"), 
-      width = 800, height = 800, type = "cairo", pointsize = 35)
-  
-  par(xpd = NA, mar = c(4,4,3,2))
-  
-  ranges <- rbind(range(sxs[[i]]), range(sys[[i]]))
-  
-  plot(1, 1, xlim = ranges[1,], ylim = ranges[2,], type = "l", col = 0, 
-       xaxt = "n", yaxt = "n", frame = F, xlab = "", ylab = "")
-
-  lines(unlist(sxs[[i]]), unlist(sys[[i]]), type = "l", col = 1, lwd = 2)
-
-  lines(unlist(sxs_l[[i]]), unlist(sys_l[[i]]), type = "l", col = 2, lwd = 4)
-  
-  dev.off()
-  
-}
-
-
-#stich together animation
-file.remove(paste0(anim_dir, list.files(anim_dir, pattern = "*.mp4")))
-system(paste0("cd ", anim_dir, "; ffmpeg -r ", 
-              fps / thin," -f image2 -s 1000x500 -i frames/%05d.png -vcodec libx264 -crf 25 -pix_fmt yuv420p temp.mp4"))
-
-#reverse and append and loop
-system(paste0("cd ", anim_dir, "; ", 
-              "ffmpeg -i temp.mp4 -vf reverse rev_temp.mp4; ",
-              "touch input.txt;",
-              "echo \"file temp.mp4\nfile rev_temp.mp4\" > input.txt;",
-              "ffmpeg -f concat -i input.txt -codec copy 1t_temp.mp4; ",
-              "ffmpeg -stream_loop 3 -i 1t_temp.mp4 -c copy final.mp4"))
-
 #maybe also pass it through a more "loop"-y intermediate stage? ie increaase intermediate frequencies?
 
 #for different segment #s, find shortest segments in larger sequence 
@@ -639,108 +390,360 @@ compress_redundancy_xy <- function(obj){
 }
 
 
-
-#read in data
-ts1 <- read.csv("~/data/nikvetr_sig_ts.csv")
-ts2 <- read.csv("~/data/nl_sig_ts.csv")
-
-#get block inds
-ts1$i <- c(1, cumsum(diff(ts1$t) > 50) + 1)
-ts2$i <- c(1, cumsum(diff(ts2$t) > 50) + 1)
-
-#compress away redundancy
-ts1 <- compress_redundancy_xy(ts1)
-ts2 <- compress_redundancy_xy(ts2)
-
-#match blocks
-nb1 <- table(ts1$i)
-nb2 <- table(ts2$i)
-
-if(length(nb1) > length(nb2)){
-  b2u <- order(nb1, decreasing = T)[1:length(nb2)] #blocks to use
-  b2nu <- setdiff(as.numeric(unique(names(nb1))), b2u) #blocks to not use
-  matcher <- data.frame(b1 = sort(b2u), b2 = 1:length(nb2)) #match blocks between objs
-  b2ui <- ts1[ts1$i %in% b2u,] #find locs of blocks to use in appr obj
+plot_example <- F
+if(plot_example){
   
-  intersects <- lapply(b2nu, function(b2n){
+  #### read in data ####
+  nv <- read.csv("~/data/nikvetr_sig_ts.csv")
+  nl <- read.csv("~/data/nl_sig_ts.csv")
+  
+  #get block inds
+  nv$i <- c(1, cumsum(diff(nv$t) > 50) + 1)
+  nl$i <- c(1, cumsum(diff(nl$t) > 50) + 1)
+  
+  #subset to just the first block for now
+  nv <- nv[nv$i == 1,]
+  nl <- nl[nl$i == 1,]
+  
+  #transform to equal lengths
+  orig_res <- c(nl = nrow(nl), nv = nrow(nv))
+  orig_res_rat <- orig_res / max(orig_res)
+  max_len <- max(c(nrow(nl), nrow(nv)))
+  nl2 <- interpolate_to_length_kd(x = nl[,c("x", "y")], n = max_len, 
+                                  segs = nl$i, equal_increments = T)
+  nv2 <- interpolate_to_length_kd(x = nv[,c("x", "y")], n = max_len, 
+                                  segs = nv$i, equal_increments = T)
+  plot(nl2$x, -nl2$y, col = nl2$i)
+  plot(nv2$x, -nv2$y, col = nv2$i)
+  
+  #center text on origin
+  nvw <- diff(range(nv2$x))
+  nvh <- diff(range(nv2$y))
+  nv2$x <- nv2$x - min(nv2$x) - nvw / 2
+  nv2$y <- nv2$y - min(nv2$y) - nvh / 2
+  
+  nlw <- diff(range(nl2$x))
+  nlh <- diff(range(nl2$y))
+  nl2$x <- nl2$x - min(nl2$x) - nlw / 2
+  nl2$y <- nl2$y - min(nl2$y) - nlh / 2
+  
+  #get equal length text lines
+  sig_lengths <- c(nv = sum(line_lengths(nv2[,c("x", "y")], nv2$i)), 
+                   nl = sum(line_lengths(nl2[,c("x", "y")], nl2$i)))
+  sig_props <- sig_lengths / max(sig_lengths)
+  nv2[,c("x", "y")] <- nv2[,c("x", "y")] * sig_props["nv"]
+  nl2[,c("x", "y")] <- nl2[,c("x", "y")] * sig_props["nl"]
+  
+  #replace w/ new vars
+  nv <- nv2
+  nl <- nl2
+  
+  #invert vertical axis
+  nv$y <- -nv$y
+  nl$y <- -nl$y
+  
+  plot(nl$x, nl$y, type = "l", col = 0)
+  for(i in 1:max(nl$i)){
+    lines(nl$x[nl$i == i], nl$y[nl$i == i], type = "l", col = 2, lwd = 2)
+  }
+  
+  plot(nv$x, nv$y, type = "l", col = 0)
+  for(i in 1:max(nv$i)){
+    lines(nv$x[nv$i == i], nv$y[nv$i == i], type = "l", col = 2, lwd = 2)
+  }
+  
+  #### smoothed signature processing ####
+  base_threshold_multiplier <- 50
+  prop_var <- 0.999
+  use_var_thresh <- T
+  nls <- lapply(1:max(nl$i), function(i){
     
-    #get current block not in use
-    b2ni <- ts1[ts1$i == b2n, c("x","y")] 
+    inds <- which(nl$i == i)
     
-    #evaluate overlap of bounding boxes and then check for line intersects
-    block_hits <- lapply(2:nrow(b2ni), function(ri){
-      curr_seg_b2nu <- b2ni[ri:(ri-1),] #curr seg
+    sx <- nl$x[inds]
+    sx <- c(sx, rev(sx))
+    if(use_var_thresh){
+      sx <- unlist(wavelet_smooth(sx, var_thresh = prop_var))  
+    } else {
+      sx <- unlist(wavelet_smooth_noise_thresh(sx, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nl"]^1.5))  
+    }
+    
+    
+    sx <- sx[1:length(inds)]
+    
+    sy <- nl$y[inds]
+    sy <- c(sy, rev(sy))
+    if(use_var_thresh){
+      sy <- unlist(wavelet_smooth(sy, var_thresh = prop_var))
+    } else {
+      sy <- unlist(wavelet_smooth_noise_thresh(sy, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nl"]^1.5))
+    }
+    sy <- sy[1:length(inds)]
+    
+    return(data.frame(x = sx, y = sy, i = i))
+  })
+  
+  nvs <- lapply(1:max(nv$i), function(i){
+    
+    inds <- which(nv$i == i)
+    
+    sx <- nv$x[inds]
+    sx <- c(sx, rev(sx))
+    if(use_var_thresh){
+      sx <- unlist(wavelet_smooth(sx, var_thresh = prop_var))
+    } else {
+      sx <- unlist(wavelet_smooth_noise_thresh(sx, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nv"]^1.5))
+    }
+    sx <- sx[1:length(inds)]
+    
+    sy <- nv$y[inds]
+    sy <- c(sy, rev(sy))
+    if(use_var_thresh){
+      sy <- unlist(wavelet_smooth(sy, var_thresh = prop_var))
+    } else {
+      sy <- unlist(wavelet_smooth_noise_thresh(sy, threshold_multiplier = base_threshold_multiplier / orig_res_rat["nv"]^1.5))
+    }
+    sy <- sy[1:length(inds)]
+    
+    return(data.frame(x = sx, y = sy, i = i))
+  })
+  
+  
+  #basic plotting
+  par(mfrow = c(2,1))
+  plot(nl$x, nl$y, type = "l", col = 0)
+  for(i in 1:max(nl$i)){
+    lines(nls[[i]]$x, nls[[i]]$y, type = "l", col = 1, lwd = 2)
+  }
+  
+  plot(nv$x, nv$y, type = "l", col = 0)
+  for(i in 1:max(nv$i)){
+    lines(nvs[[i]]$x, nvs[[i]]$y, type = "l", col = 1, lwd = 2)
+  }
+  
+  #### interpolation ####
+  
+  #wavelet interpolation?
+  props <- 0:4/4
+  inds <- which(nl$i == 1)
+  
+  sx1 <- nl$x[inds]
+  sx1 <- c(sx1, rev(sx1))
+  sx2 <- nv$x[inds]
+  sx2 <- c(sx2, rev(sx2))
+  
+  sxs <- wavelet_smooth_interpolate(d1 = sx1, d2 = sx2, 
+                                    threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
+                                    props = props)
+  
+  sy1 <- nl$y[inds]
+  sy1 <- c(sy1, rev(sy1))
+  sy2 <- nv$y[inds]
+  sy2 <- c(sy2, rev(sy2))
+  
+  sys <- wavelet_smooth_interpolate(d1 = sy1, d2 = sy2, 
+                                    threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
+                                    props = props)
+  
+  #plot it
+  i <- 5
+  ranges <- rbind(range(sxs[[i]]), range(sys[[i]]))
+  plot(1, 1, xlim = ranges[1,], ylim = ranges[2,], type = "l", col = 0, 
+       xaxt = "n", yaxt = "n", frame = F, xlab = "", ylab = "")
+  lines(unlist(sxs[[i]]), unlist(sys[[i]]), type = "l", col = 1, lwd = 2)
+  
+  #linear interpolation
+  sxs_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sx1, threshold_multiplier = 100), 
+                                     d2 = wavelet_smooth(sx2, threshold_multiplier = 100), props = props)
+  sys_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sy1, threshold_multiplier = 100), 
+                                     d2 = wavelet_smooth(sy2, threshold_multiplier = 100), props = props)
+  
+  #now write to disk and create animation
+  anim_dir <- "~/Pictures/sig_interp/"
+  if(!dir.exists(anim_dir)){dir.create(anim_dir)}
+  frames_dir <- paste0(anim_dir, "frames/")
+  if(!dir.exists(frames_dir)){dir.create(frames_dir)}
+  if(length(list.files(frames_dir)) > 0){file.remove(paste0(frames_dir, list.files(frames_dir)))}
+  
+  fps <- 60
+  thin <- 1
+  fps <- 60
+  ns <- 2.5
+  thin <- 1
+  frame_indices <- 1:(fps*ns)
+  plotting_indices <- seq(1, max(frame_indices), by = thin)
+  props <- 1:length(frame_indices) / length(frame_indices)
+  
+  inds <- which(nl$i == 1)
+  
+  sxs <- wavelet_smooth_interpolate(d1 = sx1, d2 = sx2, 
+                                    threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
+                                    props = props)
+  sys <- wavelet_smooth_interpolate(d1 = sy1, d2 = sy2, 
+                                    threshold_multipliers = c(base_threshold_multiplier, base_threshold_multiplier) / orig_res_rat, 
+                                    props = props)
+  
+  sxs_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sx1, threshold_multiplier = 100), 
+                                     d2 = wavelet_smooth(sx2, threshold_multiplier = 100), props = props)
+  sys_l <- linear_smooth_interpolate(d1 = wavelet_smooth(sy1, threshold_multiplier = 100), 
+                                     d2 = wavelet_smooth(sy2, threshold_multiplier = 100), props = props)
+  
+  sxs_l <- linear_smooth_interpolate(d1 = fourier_smooth(sx1), 
+                                     d2 = fourier_smooth(sx2), props = props)
+  sys_l <- linear_smooth_interpolate(d1 = fourier_smooth(sy1), 
+                                     d2 = fourier_smooth(sy2), props = props)
+  
+  use_multicore <- T
+  if(use_multicore){
+    if(exists("cl")){
+      stopCluster(cl)
+      remove(cl)
+    }
+    if(!exists("cl")){
+      cl <- makeCluster(12, outfile="")
+      registerDoParallel(cl)
+    }
+    getDoParWorkers()
+  }
+  
+  foreach(fi=1:length(plotting_indices), .packages = c("png")) %dopar% {
+    print(i)
+    i <- plotting_indices[fi]
+    
+    png(filename = paste0(frames_dir, paste0(rep(0, 5 - nchar(i)), collapse = ""), i, ".png"), 
+        width = 800, height = 800, type = "cairo", pointsize = 35)
+    
+    par(xpd = NA, mar = c(4,4,3,2))
+    
+    ranges <- rbind(range(sxs[[i]]), range(sys[[i]]))
+    
+    plot(1, 1, xlim = ranges[1,], ylim = ranges[2,], type = "l", col = 0, 
+         xaxt = "n", yaxt = "n", frame = F, xlab = "", ylab = "")
+    
+    lines(unlist(sxs[[i]]), unlist(sys[[i]]), type = "l", col = 1, lwd = 2)
+    
+    lines(unlist(sxs_l[[i]]), unlist(sys_l[[i]]), type = "l", col = 2, lwd = 4)
+    
+    dev.off()
+    
+  }
+  
+  
+  #stich together animation
+  file.remove(paste0(anim_dir, list.files(anim_dir, pattern = "*.mp4")))
+  system(paste0("cd ", anim_dir, "; ffmpeg -r ", 
+                fps / thin," -f image2 -s 1000x500 -i frames/%05d.png -vcodec libx264 -crf 25 -pix_fmt yuv420p temp.mp4"))
+  
+  #reverse and append and loop
+  system(paste0("cd ", anim_dir, "; ", 
+                "ffmpeg -i temp.mp4 -vf reverse rev_temp.mp4; ",
+                "touch input.txt;",
+                "echo \"file temp.mp4\nfile rev_temp.mp4\" > input.txt;",
+                "ffmpeg -f concat -i input.txt -codec copy 1t_temp.mp4; ",
+                "ffmpeg -stream_loop 3 -i 1t_temp.mp4 -c copy final.mp4"))
+  
+  #read in data
+  ts1 <- read.csv("~/data/nikvetr_sig_ts.csv")
+  ts2 <- read.csv("~/data/nl_sig_ts.csv")
+  
+  #get block inds
+  ts1$i <- c(1, cumsum(diff(ts1$t) > 50) + 1)
+  ts2$i <- c(1, cumsum(diff(ts2$t) > 50) + 1)
+  
+  #compress away redundancy
+  ts1 <- compress_redundancy_xy(ts1)
+  ts2 <- compress_redundancy_xy(ts2)
+  
+  #match blocks
+  nb1 <- table(ts1$i)
+  nb2 <- table(ts2$i)
+  
+  if(length(nb1) > length(nb2)){
+    b2u <- order(nb1, decreasing = T)[1:length(nb2)] #blocks to use
+    b2nu <- setdiff(as.numeric(unique(names(nb1))), b2u) #blocks to not use
+    matcher <- data.frame(b1 = sort(b2u), b2 = 1:length(nb2)) #match blocks between objs
+    b2ui <- ts1[ts1$i %in% b2u,] #find locs of blocks to use in appr obj
+    
+    intersects <- lapply(b2nu, function(b2n){
       
-      overlapping_rects <- sapply(2:nrow(b2ui), function(ri2){  
-        check_overlap(rect1 = curr_seg_b2nu, 
-                      rect2 = b2ui[ri2:(ri2-1),c("x", "y")])
-      })
-      hits <- which(overlapping_rects)
+      #get current block not in use
+      b2ni <- ts1[ts1$i == b2n, c("x","y")] 
       
-      if(length(hits) > 0){
-        true_intersects <- sapply(hits, function(hi){
-          intersect_func(line1 = curr_seg_b2nu, 
-                         line2 = b2ui[hi:(hi+1),c("x", "y")])
+      #evaluate overlap of bounding boxes and then check for line intersects
+      block_hits <- lapply(2:nrow(b2ni), function(ri){
+        curr_seg_b2nu <- b2ni[ri:(ri-1),] #curr seg
+        
+        overlapping_rects <- sapply(2:nrow(b2ui), function(ri2){  
+          check_overlap(rect1 = curr_seg_b2nu, 
+                        rect2 = b2ui[ri2:(ri2-1),c("x", "y")])
         })
-        if(any(true_intersects)){
-          return(hits[true_intersects][1]) #returns first intersection index in b2ui
+        hits <- which(overlapping_rects)
+        
+        if(length(hits) > 0){
+          true_intersects <- sapply(hits, function(hi){
+            intersect_func(line1 = curr_seg_b2nu, 
+                           line2 = b2ui[hi:(hi+1),c("x", "y")])
+          })
+          if(any(true_intersects)){
+            return(hits[true_intersects][1]) #returns first intersection index in b2ui
+          } else {
+            return(F)
+          }
         } else {
           return(F)
         }
-      } else {
-        return(F)
+      })
+      
+      if(any(unlist(block_hits))){
+        matched_intersects <- do.call(rbind, lapply(seq_along(block_hits), function(i) 
+          if(block_hits[i] != F){return(c(b2ni = i, b2ui = block_hits[i]))}else{return(integer(0))}))
       }
-    })
-    
-    if(any(unlist(block_hits))){
-      matched_intersects <- do.call(rbind, lapply(seq_along(block_hits), function(i) 
-        if(block_hits[i] != F){return(c(b2ni = i, b2ui = block_hits[i]))}else{return(integer(0))}))
-    }
-    
-    matched_intersects
-    
+      
+      matched_intersects
+      
     })
     
     
-} else {
-  b2u <- order(nb2, decreasing = T)[1:length(nb1)] #blocks to use
-  b2nu <- setdiff(as.numeric(unique(names(nb2))), b2u)
-  matcher <- data.frame(b1 = 1:length(nb1), b2 = sort(b2u))
+  } else {
+    b2u <- order(nb2, decreasing = T)[1:length(nb1)] #blocks to use
+    b2nu <- setdiff(as.numeric(unique(names(nb2))), b2u)
+    matcher <- data.frame(b1 = 1:length(nb1), b2 = sort(b2u))
+  }
+  
+  #transform to equal lengths
+  orig_res <- c(ts2 = nrow(ts2), ts1 = nrow(ts1))
+  orig_res_rat <- orig_res / max(orig_res)
+  max_len <- max(c(nrow(ts2), nrow(ts1)))
+  ts2.2 <- interpolate_to_length_kd(x = ts2[,c("x", "y")], n = max_len, 
+                                    segs = ts2$i, equal_increments = T)
+  ts1.2 <- interpolate_to_length_kd(x = ts1[,c("x", "y")], n = max_len, 
+                                    segs = ts1$i, equal_increments = T)
+  plot(ts2.2$x, -ts2.2$y, col = ts2.2$i)
+  plot(ts1.2$x, -ts1.2$y, col = ts1.2$i)
+  
+  #center text on origin
+  ts1w <- diff(range(ts1.2$x))
+  ts1h <- diff(range(ts1.2$y))
+  ts1.2$x <- ts1.2$x - min(ts1.2$x) - ts1w / 2
+  ts1.2$y <- ts1.2$y - min(ts1.2$y) - ts1h / 2
+  
+  ts2w <- diff(range(ts2.2$x))
+  ts2h <- diff(range(ts2.2$y))
+  ts2.2$x <- ts2.2$x - min(ts2.2$x) - ts2w / 2
+  ts2.2$y <- ts2.2$y - min(ts2.2$y) - ts2h / 2
+  
+  #get equal length text lines
+  sig_lengths <- c(ts1 = sum(line_lengths(ts1.2[,c("x", "y")], ts1.2$i)), 
+                   ts2 = sum(line_lengths(ts2.2[,c("x", "y")], ts2.2$i)))
+  sig_props <- sig_lengths / max(sig_lengths)
+  ts1.2[,c("x", "y")] <- ts1.2[,c("x", "y")] * sig_props["ts1"]
+  ts2.2[,c("x", "y")] <- ts2.2[,c("x", "y")] * sig_props["ts2"]
+  
+  #replace w/ new vars
+  ts1 <- ts1.2
+  ts2 <- ts2.2
+  
+  #its1ert vertical axis
+  ts1$y <- -ts1$y
+  ts2$y <- -ts2$y  
 }
-
-#transform to equal lengths
-orig_res <- c(ts2 = nrow(ts2), ts1 = nrow(ts1))
-orig_res_rat <- orig_res / max(orig_res)
-max_len <- max(c(nrow(ts2), nrow(ts1)))
-ts2.2 <- interpolate_to_length_kd(x = ts2[,c("x", "y")], n = max_len, 
-                                segs = ts2$i, equal_increments = T)
-ts1.2 <- interpolate_to_length_kd(x = ts1[,c("x", "y")], n = max_len, 
-                                segs = ts1$i, equal_increments = T)
-plot(ts2.2$x, -ts2.2$y, col = ts2.2$i)
-plot(ts1.2$x, -ts1.2$y, col = ts1.2$i)
-
-#center text on origin
-ts1w <- diff(range(ts1.2$x))
-ts1h <- diff(range(ts1.2$y))
-ts1.2$x <- ts1.2$x - min(ts1.2$x) - ts1w / 2
-ts1.2$y <- ts1.2$y - min(ts1.2$y) - ts1h / 2
-
-ts2w <- diff(range(ts2.2$x))
-ts2h <- diff(range(ts2.2$y))
-ts2.2$x <- ts2.2$x - min(ts2.2$x) - ts2w / 2
-ts2.2$y <- ts2.2$y - min(ts2.2$y) - ts2h / 2
-
-#get equal length text lines
-sig_lengths <- c(ts1 = sum(line_lengths(ts1.2[,c("x", "y")], ts1.2$i)), 
-                 ts2 = sum(line_lengths(ts2.2[,c("x", "y")], ts2.2$i)))
-sig_props <- sig_lengths / max(sig_lengths)
-ts1.2[,c("x", "y")] <- ts1.2[,c("x", "y")] * sig_props["ts1"]
-ts2.2[,c("x", "y")] <- ts2.2[,c("x", "y")] * sig_props["ts2"]
-
-#replace w/ new vars
-ts1 <- ts1.2
-ts2 <- ts2.2
-
-#its1ert vertical axis
-ts1$y <- -ts1$y
-ts2$y <- -ts2$y

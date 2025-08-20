@@ -43,7 +43,6 @@ if(using_png){
         png(filename = temp_filename, units = "px", width = npix["w"], height = npix["h"])
 } else {
         svg(filename = temp_filename, width = npix["w"] / 72, height = npix["h"] / 72)
-        
 }
 
 par(mar = c(0,0,0,0))
@@ -204,7 +203,8 @@ is_showtext_enabled <- function() {
 
 text_distortion <- function(string,
                              font_name = "sans",
-                             device = c("svg", "png")[1]){
+                             device = c("svg", "png")[1],
+                             add_font = T){
     
     if(device == "png"){
         using_png <- T
@@ -219,24 +219,26 @@ text_distortion <- function(string,
     }
     
     #add font for use with showtext if it has not been added already
-    if(!(font_name %in% sysfonts::font_families())){
-        font_styles <- names(formals(sysfonts::font_add))
-        font_styles <- setdiff(font_styles, c("family", "symbol"))
-        all_fonts <- systemfonts::system_fonts()
-        matching_fonts <- subset(all_fonts, family == font_name)
-        if(nrow(matching_fonts) == 0){stop("font not found on system")}
-        found_styles <- gsub(" ", "", tolower(matching_fonts$style))
-        matching_font_paths <- setNames(matching_fonts$path[found_styles %in% font_styles], 
-                                        found_styles[found_styles %in% font_styles])
-        sysfonts::font_add(family = font_name, 
-                           regular = ifelse2(!is.na(matching_font_paths["regular"]), 
-                                             matching_font_paths["regular"], NULL), 
-                           bold = ifelse2(!is.na(matching_font_paths["bold"]), 
-                                          matching_font_paths["bold"], NULL), 
-                           italic = ifelse2(!is.na(matching_font_paths["italic"]), 
-                                            matching_font_paths["italic"], NULL), 
-                           bolditalic = ifelse2(!is.na(matching_font_paths["bolditalic"]), 
-                                                matching_font_paths["bolditalic"], NULL))
+    if(add_font){
+        if(!(font_name %in% sysfonts::font_families())){
+            font_styles <- names(formals(sysfonts::font_add))
+            font_styles <- setdiff(font_styles, c("family", "symbol"))
+            all_fonts <- systemfonts::system_fonts()
+            matching_fonts <- subset(all_fonts, family == font_name)
+            if(nrow(matching_fonts) == 0){stop("font not found on system")}
+            found_styles <- gsub(" ", "", tolower(matching_fonts$style))
+            matching_font_paths <- setNames(matching_fonts$path[found_styles %in% font_styles], 
+                                            found_styles[found_styles %in% font_styles])
+            sysfonts::font_add(family = font_name, 
+                               regular = ifelse2(!is.na(matching_font_paths["regular"]), 
+                                                 matching_font_paths["regular"], NULL), 
+                               bold = ifelse2(!is.na(matching_font_paths["bold"]), 
+                                              matching_font_paths["bold"], NULL), 
+                               italic = ifelse2(!is.na(matching_font_paths["italic"]), 
+                                                matching_font_paths["italic"], NULL), 
+                               bolditalic = ifelse2(!is.na(matching_font_paths["bolditalic"]), 
+                                                    matching_font_paths["bolditalic"], NULL))
+        }   
     }
 
     #find reasonable plotting parameters
@@ -399,6 +401,7 @@ plot.window(xlim = c(0, 1),
 target_center <- c(x=0.4, y=0.6)
 cex <- 10
 font_name <- "Source Serif Pro"
+# font_name <- "Hershey"
 string <- paste0(sample(c(LETTERS, letters, 0:9), 12), collapse = "")
 
 device <- "svg"

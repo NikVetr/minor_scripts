@@ -1,0 +1,95 @@
+digraph workflow {
+
+  /* ───────── global layout ───────── */
+  graph [
+    rankdir  = TB
+    newrank  = true
+    compound = true          // needed for ltail / lhead
+    splines  = ortho
+    nodesep  = 1.0
+    ranksep  = 0.9
+    pad      = "0.40,0.30"
+    fontsize = 12
+    labelloc = "t"
+    label    = "eGTEx-ASE Analysis Workflow"
+  ]
+
+  node [shape = box, style = "rounded,filled", fillcolor = white,
+        margin = "0.23,0.09", fontsize = 10]
+  edge [arrowhead = normal, minlen = 1]
+
+  /* ───────── 1 · inputs ───────── */
+  { rank = same
+    GTEx   [label = <GTEx data<BR/>(<B><FONT COLOR="#6e8b3d">RNASeq</FONT></B> +<BR/><B><FONT COLOR="#9932CC">mmPCRSeq</FONT></B>)>, width = 1.3]
+    OVC    [label = <OVC data<BR/>(<B><FONT COLOR="#6e8b3d">RNASeq</FONT></B> +<BR/><B><FONT COLOR="#9932CC">mmPCRSeq</FONT></B>)>, shape = square, width = 0.6]
+    Impute [label = "Stochastic phase\nimputation model", width = 1.9]
+  }
+  OVC:e -> Impute:w  [tailport=e, headport=w]
+
+  /* ───────── 2 · mixture-model cluster ───────── */
+  subgraph cluster_mix {
+    label     = "3-component Beta–\nBinomial mixture model"
+    style     = "rounded,dashed"
+    fontsize  = 11
+
+    eQTL  [label = "eQTL effects",         width = 1.6]
+    Grade [label = "Grade effects", width = 1.9]
+    { rank = same eQTL Grade }
+  }
+  GTEx:s   -> eQTL:n   [tailport=s, headport=n]
+  Impute:s -> Grade:n  [tailport=s, headport=n, minlen = 2.0]
+  GTEx:s -> Grade:w [
+    tailport = s      // leave GTEx on its right-hand edge
+    headport = n      // enter Grade on its left-hand edge (well below the label)
+    constraint = false  // don’t let this edge influence ranking
+    minlen = 0.5        // keeps the edge short so no big white gap appears
+    xlabel = "healthy ovary"
+  ]
+
+
+  /* ───────── 3 · derived-quantity cluster ───────── */
+  subgraph cluster_Process {
+    label     = "Empirical Bayesian update recovers three posterior predictive distributions"
+    style     = "rounded,dashed"
+    fontsize  = 11
+
+    ASEcoef [label = <<B><FONT COLOR="#0077BB">ASE </FONT></B> coef | <B><FONT COLOR="#009988">AB</FONT></B>, <B><FONT COLOR="#0077BB">ASE</FONT></B><BR/>logit(|½ − θ| × 2)>]
+    
+    PrASE   [label = <Pr(<B><FONT COLOR="#0077BB">ASE </FONT></B> | <B><FONT COLOR="#009988">AB </FONT></B>∨<B><FONT COLOR="#0077BB">ASE</FONT></B>)<BR/>+ logit transform>]
+    
+    PrLoH   [label = <Pr(<B><FONT COLOR="#EE7733">LoH</FONT></B>)<BR/>+ logit transform>]
+    { rank = same ASEcoef PrASE PrLoH }
+  }
+
+  /* single cluster-to-cluster arrow (tail = cluster_mix, head = cluster_Process) */
+  eQTL:s -> PrASE:n [ltail=cluster_mix lhead=cluster_Process,
+                     tailport=s, headport=n]
+
+  /* ───────── 4 · posterior means ───────── */
+  Posterior [label = "Take posterior means of each", width = 2.1]
+  PrASE:s -> Posterior:n [ltail=cluster_Process, tailport=s, headport=n, minlen=1]
+
+  /* ───────── 5 · effects & meta-analysis ───────── */
+  subgraph cluster_meta {
+    label    = "multilevel meta-\nanalysis model"
+    style    = "rounded,dashed"
+    fontsize = 11
+
+    eQTLeffect  [label = "eQTL effects"]
+    Gradeeffect [label = "Grade effects"]
+    { rank = same eQTLeffect Gradeeffect }
+  }
+
+  Posterior:s -> eQTLeffect:n  [tailport=s, headport=n]
+  Posterior:s -> Gradeeffect:n [tailport=s, headport=n]
+
+  MetaAgg [label = "Further meta-analysis to\naggregate signal across tissues", width = 2.4]
+  eQTLeffect:s -> MetaAgg:n  [tailport=s, headport=n]
+  MetaAgg:s -> eQTLeffect:n  [tailport=n, headport=s]
+
+  /* bring it home with visualization */
+  Visual [label = "Visualize posterior output"]
+  eQTLeffect:s -> Visual:n [ltail=cluster_meta, tailport=s, headport=n]
+
+
+}

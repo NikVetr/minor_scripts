@@ -2,6 +2,16 @@ labs <- "\\textbf{$h^2_{SNP}$ Estimation}\nQuantify both\nSNP heritability\nenri
 labs <- "\\textbf{GWAS}\n114 Genome-\nWide Association\nStudies across 12\ntrait categories"
 # labs <- paste0(unlist(strsplit("SNP heritability", "")), "\n", collapse = "")
 
+
+xyrat <- function(){
+  prop <- c(diff(par("usr")[1:2]), diff(par("usr")[3:4])) / par("pin")
+  prop[1] / prop[2]
+}
+
+polar2cart <- function(t, r){
+  return(c(r*cos(t), r * sin(t)))
+}
+
 text2 <- function(x, y, pos = NULL, cex = 1, labels = NULL, drect = F, ...){
   adj_x <- x + ifelse(any(pos %in% c(2,4)), ifelse(any(pos == 2), -1, 1) * strwidth(labels, cex = cex) / 2, 0)
   adj_y <- y + ifelse(any(pos %in% c(1,3)), ifelse(any(pos == 1), -1, 1) * strheight(labels, cex = cex) / 2, 0)

@@ -102,12 +102,22 @@ convert_to_plot <- function(svgdf){
   coords$y <- max(coords$y) - coords$y
   split_coords <- split(coords, elem_idx)
   idx <- split(svgdf$idx, elem_idx)
+  line_cols <- split(svgdf$col, elem_idx)
+  fill_cols <- split(svgdf$fill, elem_idx)
   
   #check for weird artefacting
   #sometimes there is a point and it is a separate shape but all the same pt
   keep <- sapply(split_coords, nrow) - sapply(sapply(split_coords, duplicated), sum) != 1
   split_coords <- split_coords[keep]
   idx <- idx[keep]
+  
+  #get average color
+  average_hex <- function(hex_vec) {
+    avg_rgb <- rowMeans(col2rgb(hex_vec))
+    rgb(avg_rgb[1], avg_rgb[2], avg_rgb[3], maxColorValue = 255)
+  }
+  line_cols <- sapply(line_cols[keep], average_hex)
+  fill_cols <- sapply(fill_cols[keep], average_hex)
   
   #convert to better behaved polys
   fixed_polys <- split_coords
@@ -125,13 +135,22 @@ convert_to_plot <- function(svgdf){
   }
   
   return(list(coords = coords, 
-              fixed_polys = fixed_polys))
+              fixed_polys = fixed_polys,
+              fill_cols = fill_cols,
+              line_cols = line_cols))
   
 }
 
 plot_polys <- function(fixed_polys, col = 1, border = NA, add = T, disp = c(0,0), ...){
+  k <- length(fixed_polys)
+  if(length(col) < k){
+    col <- rep(col, k)
+  }
+  if(length(border) < k){
+    border <- rep(border, k)
+  }
   for(pli in 1:length(fixed_polys)){
-    plot(fixed_polys[[pli]] + disp, col = col, border = border, add = add)
+    plot(fixed_polys[[pli]] + disp, col = col[pli], border = border[pli], add = add)
   }  
 }
 
@@ -140,17 +159,26 @@ plot_polys <- function(fixed_polys, col = 1, border = NA, add = T, disp = c(0,0)
 #import fonts
 # font_import()
 # loadfonts()
-names(pdfFonts())[grepl("oboto", names(pdfFonts()))]
+# names(pdfFonts())[grepl("oboto", names(pdfFonts()))]
+names(pdfFonts())[grepl("Source", names(pdfFonts()))]
+names(pdfFonts())[grepl("Inter", names(pdfFonts()))]
 
 #render text with polygons, not svg tags
 showtext::showtext_auto(T)
 
 #read in and process names
-labnames <- trimws(readLines("~/montgomery_lab_names.txt", warn = F))
-nlabn <- length(labnames)
-space_locs <- gregexpr(" ", labnames)
+name_path <- c("~/montgomery_lab_names.txt",
+               "~/rethink_priorities_names.txt")[2]
+group_name <- strsplit(name_path, "~/|_names.txt")[[1]][2]
+names_to_use <- trimws(readLines(name_path, warn = F))
+max_n_names <- 10
+if(!is.null(max_n_names)){
+  names_to_use <- names_to_use[1:min(length(names_to_use), max_n_names)]  
+}
+nlabn <- length(names_to_use)
+space_locs <- gregexpr(" ", names_to_use)
 n_max_words <- 2
-labnames_list <- lapply(1:length(labnames), function(ni){
+names_to_use_list <- lapply(1:length(names_to_use), function(ni){
   
   #process spaces
   sls <- c(space_locs[[ni]])
@@ -164,9 +192,9 @@ labnames_list <- lapply(1:length(labnames), function(ni){
   
   #divide up words
   starts <- c(1, sls + 1)
-  stops <- c(sls - 1, nchar(labnames[ni]))
+  stops <- c(sls - 1, nchar(names_to_use[ni]))
   labname_split <- sapply(1:length(starts), function(si) 
-    substr(labnames[ni], start = starts[si], stop = stops[si]))
+    substr(names_to_use[ni], start = starts[si], stop = stops[si]))
   labname_split
 })
 
@@ -182,8 +210,9 @@ name_center_adj <- name_center_adj_prop * dim_unit
 logo_center_adj_prop <- c(x = 0, y = -0.005)
 logo_center_adj <- logo_center_adj_prop * dim_unit
 dim_plot <- c(w = 23.77, h = 13.0)
-dim_name <- dim_unit - dim_unit["w"] / 5
-dim_logo <- dim_unit - dim_unit["w"] / 10
+dim_name <- dim_unit - dim_unit["w"] / 4.5
+dim_logo <- dim_unit - dim_unit["w"] / 7
+dim_vsc <- dim_unit - dim_unit["w"] / 6
 degree_name_overlap <- 0.4
 name_cex_ratio_base <- 0.55
 name_cex_ratio_factor <- 1.1
@@ -207,11 +236,15 @@ colnames(centers) <- c("x", "y")
 
 #specify font information
 font_name <- "Source Serif Pro"
+font_name <- "Inter"
+# font_name <- "Inter 18pt SemiBold"
+font_style <- 1
+
 
 #change first names for nicer layout if desired
 if(use_smallcaps){
-  first_names <- do.call(rbind, labnames_list)[,1]
-  last_names <- do.call(rbind, labnames_list)[,2]
+  first_names <- do.call(rbind, names_to_use_list)[,1]
+  last_names <- do.call(rbind, names_to_use_list)[,2]
   new_first_names <- sapply(first_names, function(name){
     has_yqpgj <- any(strsplit(name, "")[[1]] %in% strsplit("yqpgj", "")[[1]])  
     if(has_yqpgj){
@@ -230,7 +263,7 @@ if(use_smallcaps){
       return(surname)
     }
   })
-  labnames_list <- apply(cbind(new_first_names, new_last_names), 1, function(x) as.character(x), simplify = F)
+  names_to_use_list <- apply(cbind(new_first_names, new_last_names), 1, function(x) as.character(x), simplify = F)
 }
 
 #construct indices for when we have more names than cells
@@ -251,43 +284,46 @@ unlisted_pli <- unlist(plot_inds)
 
 #### initial bpolys ####
 #retrieve true location / bounding info for names
-labnames_list_hash <- digest::digest(labnames_list)
-name_info_path <- paste0("~/montgomery-lab-names_", 
-                         gsub(" ", "-", font_name), "_", 
-                         labnames_list_hash,".RData")
+names_to_use_list_hash <- digest::digest(names_to_use_list)
+name_info_path <- paste0("~/", group_name, "_", 
+                         gsub(" ", "-", font_name), "_",
+                         font_style, "_",
+                         names_to_use_list_hash,".RData")
 if(file.exists(name_info_path)){
   load(name_info_path)
 } else {
-  name_info <- lapply(labnames_list, function(name){
+  name_info <- lapply(names_to_use_list, function(name){
     cat(paste0(paste0(name, collapse = " "), ", "))
     lapply(name, function(subname){
-      text_distortion(string = subname, font_name = font_name, device = "svg")
+      out <- text_distortion(string = subname, font_name = font_name, device = "svg")
+      # out$coords <- out$scale_coords
     })
   })
-  bolded_name_info <- lapply(labnames_list, function(name){
+  bolded_name_info <- lapply(names_to_use_list, function(name){
     cat(paste0(paste0(name, collapse = " "), ", "))
     lapply(name, function(subname){
       if(subname == toupper(subname)){
-        return(true_text_params(string = subname, 
+        out <- true_text_params(string = subname, 
                                 target_center = c(mean(par("usr")[1:2]), mean(par("usr")[3:4])), 
                                 cex = 1, device = "svg", font_name = font_name, 
-                                return_td_res = T, font = 2))
+                                return_td_res = T, font = font_style)
+        # out$coords <- out$scale_coords
+        return(out)
       } else {
         return(NA)
       }
     })
   })
-  names(name_info) <- names(bolded_name_info) <- sapply(labnames_list, paste0, collapse = " ")
+  names(name_info) <- names(bolded_name_info) <- sapply(names_to_use_list, paste0, collapse = " ")
   save(name_info, bolded_name_info, file = name_info_path)  
 }
 
 
 #get the bpolys for the bolded names too, for kerning purposes
 
-
 #### initial positions ####
 #construct list of indiv name positions
-name_metadata <- lapply(labnames_list, function(name){
+name_metadata <- lapply(names_to_use_list, function(name){
   
   #extract important string information
   nw <- strwidth(name, "inches", family = font_name)
@@ -367,8 +403,6 @@ name_metadata <- lapply(labnames_list, function(name){
   out$vws <- new_vws
   out$hws <- new_hws
   
-  #now let's try to get the DNA metadata in there too?
-  
   return(out)
   
 })
@@ -390,13 +424,13 @@ if(!("bpoly_info" %in% names(name_metadata[[1]]))){
   if(use_smallcaps){
     
     #retrieve bolded and regular glyphs
-    all_glyphs <- sort(unique(strsplit(toupper(paste0(unlist(labnames_list), collapse = "")), "")[[1]]))
+    all_glyphs <- sort(unique(strsplit(toupper(paste0(unlist(names_to_use_list), collapse = "")), "")[[1]]))
     all_glyphs <- setdiff(all_glyphs, " ")
     all_glyphs_cat <- paste0(all_glyphs, collapse = "")
     bold_bpoly <- true_text_params(string = all_glyphs_cat, 
                                    target_center = c(mean(par("usr")[1:2]), mean(par("usr")[3:4])), 
                                    cex = 1, device = "svg", font_name = font_name, 
-                                   return_td_res = T, font = 2)
+                                   return_td_res = T, font = font_style)
     reg_bpoly <- true_text_params(string = all_glyphs_cat,
                                   target_center = c(mean(par("usr")[1:2]), mean(par("usr")[3:4])),
                                   cex = 1, device = "svg", font_name = font_name,
@@ -434,14 +468,14 @@ if(!("bpoly_info" %in% names(name_metadata[[1]]))){
                        extend_straight_by = 0, col = 1, 
                        topleft_xy = c(0,0), box_DNA = F, 
                        return_info = T,
-                       proportional_distance = prop_dist)
+                       proportional_distance = prop_dist, take_union = F)
   
   for(i in 1:nlabn){
     
     cat(paste0(i, " "))
     
     nm <- name_metadata[[i]]
-    for(j in 1:length(labnames_list[[i]])){
+    for(j in 1:length(names_to_use_list[[i]])){
       bpoly_info <- true_text_params(string = nm$text[j], 
                                      target_center = c(centers[unlisted_pli[i],1] + nm$dx[j], 
                                                        centers[unlisted_pli[i],2] + nm$dy[j]), 
@@ -671,6 +705,7 @@ mean_iar2f <- b2_w / b2_h # inverse aspect ratio for b2 (w / h), corresponding t
 cell_metadata <- lapply(1:nlabn, function(i) NULL)
 for(i in 1:nlabn){
   
+  
   cat(paste0(i, " "))
   
   #retrieve name info
@@ -678,7 +713,7 @@ for(i in 1:nlabn){
   
   #get abstracted relative dimensions in visual units (inches)
   total_width <- 1
-  total_height <- as.numeric(dim_name[2] / dim_name[1])
+  total_height <- as.numeric(dim_name["h"] / dim_name["w"])
   b1_bbox <- nm$bpoly_info[[1]]$bbox
   ar1 <- diff(range(b1_bbox[,2])) / diff(range(b1_bbox[,1])) #h / w
   b3_bbox <- nm$bpoly_info[[2]]$bbox
@@ -692,33 +727,64 @@ for(i in 1:nlabn){
   b3_h_rat_corr <- dr(nm$bpoly_info[[2]]$bbox[,2]) / dr(max_letter_b3_bbox[,2])
   
   #optimize placement of elements in fully generic sense
-  rectangles <- place_rectangles_bfgs(
-    prop_dist   = prop_dist,
-    total_width = total_width,
-    total_height = total_height,
-    ar1         = ar1,
-    ar3         = ar3,
-    start_w1    = 0.5,
-    start_w2    = 0.4,
-    start_h2    = 0.4 / mean_iar2f,
-    big_penalty = 1e3,
-    ratio_mean_b1b2_w  = 2.5,
-    ratio_sd_b1b2_w    = 10,
-    ratio_mean_b1b2_h  = 2.5,
-    ratio_sd_b1b2_h    = 0.5,
-    ratio_mean_b2b3_w = 1,
-    ratio_sd_b2b3_w = 10,
-    ratio_mean_b1_b2b3_w = 0.925,
-    ratio_sd_b1_b2b3_w = 0.05,
-    mean_iar2f = mean_iar2f,
-    sd_iar2f = 0.2,
-    mean_ntwist = 1.5,
-    sd_ntwist = 0.35,
-    iar2f_weight = 1,
-    two_stage_iar2f = T, 
-    nrep = 20,
-    print_penalties = F
-  )
+  if(group_name == "rethink_priorities"){
+    rectangles <- place_rectangles_bfgs(
+      prop_dist   = prop_dist,
+      total_width = total_width,
+      total_height = total_height,
+      ar1         = ar1,
+      ar3         = ar3,
+      start_w1    = 0.5,
+      start_w2    = 0.4,
+      start_h2    = 0.4 / mean_iar2f,
+      big_penalty = 1e3,
+      ratio_mean_b1b2_w  = 2.5,
+      ratio_sd_b1b2_w    = 10,
+      ratio_mean_b1b2_h  = 2.5,
+      ratio_sd_b1b2_h    = 0.75,
+      ratio_mean_b2b3_w = 0.5,
+      ratio_sd_b2b3_w = 0.5,
+      ratio_mean_b1_b2b3_w = 0.75,
+      ratio_sd_b1_b2b3_w = 0.05,
+      mean_iar2f = mean_iar2f,
+      sd_iar2f = 0.2,
+      mean_ntwist = 1.4,
+      sd_ntwist = 0.35,
+      iar2f_weight = 1,
+      two_stage_iar2f = T, 
+      nrep = 5,
+      print_penalties = F
+    ) 
+  }
+  if(group_name == "montgomery_lab"){
+    rectangles <- place_rectangles_bfgs(
+      prop_dist   = prop_dist,
+      total_width = total_width,
+      total_height = total_height,
+      ar1         = ar1,
+      ar3         = ar3,
+      start_w1    = 0.5,
+      start_w2    = 0.4,
+      start_h2    = 0.4 / mean_iar2f,
+      big_penalty = 1e3,
+      ratio_mean_b1b2_w  = 2.5,
+      ratio_sd_b1b2_w    = 10,
+      ratio_mean_b1b2_h  = 2.5,
+      ratio_sd_b1b2_h    = 0.75,
+      ratio_mean_b2b3_w = 1,
+      ratio_sd_b2b3_w = 10,
+      ratio_mean_b1_b2b3_w = 0.925,
+      ratio_sd_b1_b2b3_w = 0.05,
+      mean_iar2f = mean_iar2f,
+      sd_iar2f = 0.2,
+      mean_ntwist = 1.4,
+      sd_ntwist = 0.35,
+      iar2f_weight = 1,
+      two_stage_iar2f = T, 
+      nrep = 20,
+      print_penalties = F
+    ) 
+  }
   
   rect_info <- get_rect_info(rectangles)
   ntwists <- round(rect_info$ar2_factor)
@@ -726,8 +792,8 @@ for(i in 1:nlabn){
     plot_rectangles(rectangles)
   }
   
-  #hmm ar2 factor not being processed properly
-  #rectangles report the same factor, but box_dim[1] / box_dim[2] differs a lot!
+  #####
+  
   
   #plot locations
   if(plot_stuff){
@@ -762,7 +828,7 @@ for(i in 1:nlabn){
   nm_polys <- list()
   nm_polys_glyphs <- list(NULL, NULL)
   nm_polys_bbox <- list()
-  for(j in 1:length(labnames_list[[i]])){
+  for(j in 1:length(names_to_use_list[[i]])){
     
     nm_poly <- do.call(rbind, nm$bpoly_info[[j]]$bpoly)
     nm_poly_plot <- cbind(nm_poly[,1] - centers[unlisted_pli[i],"x"] + dim_unit["w"]/2, 
@@ -798,13 +864,22 @@ for(i in 1:nlabn){
                                           relative_range = x_rr
         )
         
+        #now scale the name vertically
+        
+        #original vertical scaling
         y_rr <- c(
-          ((total_height - rect_info$total_height) / 2 + rectangles$h2 * prop_dist / 2) / total_height,
-          ((total_height - rect_info$total_height) / 2 + rectangles$h3 + rectangles$h2 * prop_dist / 2) / total_height
+          ((total_height - rect_info$total_height) / 
+             2 + rectangles$h2 * prop_dist / 2) / total_height,
+          ((total_height - rect_info$total_height) / 
+             2 + rectangles$h3 + rectangles$h2 * prop_dist / 2) / total_height
         )
-        y_r <- (c(-rectangles$b3$y - rectangles$b3$height, -rectangles$b3$y) + total_height) / total_height
+        
+        #revised vertical scaling
+        y_r <- (c(-rectangles$b3$y - rectangles$b3$height, -rectangles$b3$y) + 
+                  total_height) / total_height
         y_rr <- y_r - y_buffer
         y_rr[1] <- y_rr[2] - diff(y_rr) * b3_h_rat_corr
+        
         resc_poly[,2] <- transform_points(x = resc_poly[,2],
                                           orig_span = range(inner_bbox[,2]),
                                           orig_range = range(resc_poly[,2]),
@@ -829,7 +904,8 @@ for(i in 1:nlabn){
     if(plot_stuff){
       # lines(nm_poly_plot)
       for(gi in 1:length(nm_polys_glyphs[[j]]$fixed_poly)){
-        plot(nm_polys_glyphs[[j]]$fixed_poly[[gi]], col = 1, border = NA, add = T)
+        plot(nm_polys_glyphs[[j]]$fixed_poly[[gi]], col = 1, border = NA, add = T,
+             rule  = "winding")
       }
       
     }
@@ -849,7 +925,7 @@ for(i in 1:nlabn){
     
   }
   
-  #draw DNA embellishment
+  #draw DNA (or other) embellishment
   dh_bounds <- c(-pi/2, -pi/2 + pi * ntwists)
   tl_xy_DNA <- c(min(nm_polys[[1]][,1]), max(nm_polys[[2]][,2]))
   box_dim <- c(w = min(first_letter_bbox[,1]) - tl_xy_DNA[1], 
@@ -867,14 +943,63 @@ for(i in 1:nlabn){
   #find how far to extend straight line
   extend_straight_by <- max(first_letter_bbox[,1]) - (tl_xy_DNA[1] + box_dim[1])
   if(plot_stuff){
-    draw_DNA(dh_bounds = dh_bounds, amplitude = 1,
-             rot = 90, strand_thickness = 0.02, 
-             extend_straight = ifelse(ntwists %% 2 == 0, 2, 1), 
-             extend_straight_by = extend_straight_by, col = 1, 
-             topleft_xy = tl_xy_DNA, forced_box = box_dim, box_DNA = T, 
-             straight_extension_real_units = T, return_info = F,
-             proportional_distance = prop_dist)
+    if(group_name == "montgomery_lab"){
+      draw_DNA(dh_bounds = dh_bounds, amplitude = 1,
+               rot = 90, strand_thickness = 0.02, 
+               extend_straight = ifelse(ntwists %% 2 == 0, 2, 1), 
+               extend_straight_by = extend_straight_by, col = 1, 
+               topleft_xy = tl_xy_DNA, forced_box = box_dim, box_DNA = T, 
+               straight_extension_real_units = T, return_info = F,
+               proportional_distance = prop_dist, take_union = F, 
+               pow_thickness = 1.25, overlap_bp_strand = F, move_bp = F)  
+    }
+    
+    if(group_name == "rethink_priorities"){
+      
+      #line parameters
+      space_names <- min(nm_polys[[1]][,2]) - max(nm_polys[[2]][,2])
+      tl_xy_topbar <- c(min(nm_polys[[1]][,1]), max(nm_polys[[1]][,2]) + space_names)
+      br_xy_topbar <- c(max(nm_polys[[2]][,1]), max(nm_polys[[2]][,2]))
+      bl_xy_topbar <- c(max(nm_polys[[1]][,1]), max(nm_polys[[2]][,2]))
+      tl_xy <- tl_xy_DNA
+      triangle_inset <- space_names
+      
+      ## bottom-left corner
+      draw_corner_path(kind      = "bottom_left",
+                       theta     = pi/3,
+                       line_width = 0.02,
+                       col       = 1,
+                       tl_xy     = tl_xy_DNA,
+                       box_dim   = box_dim,
+                       extend_straight_by = extend_straight_by,
+                       double_back = T,
+                       draw_triangle = T,
+                       triangle_inset = space_names,
+                       triangle_on_outside = T,
+                       hollow_triangle = T)
+      
+      ## top-right corner
+      draw_corner_path(kind      = "top_right",
+                       theta     = pi/3,
+                       line_width = 0.02,
+                       col       = 1,
+                       tl_xy     = tl_xy_topbar,
+                       br_xy     = br_xy_topbar,
+                       bl_xy     = bl_xy_topbar,
+                       double_back = F)
+      
+      # pts <- function(xy, col = 2, ...) points(xy[1], xy[2], col = col, ...)
+      # pts(tl_xy_topbar)
+      # pts(corner_xy_topbar)
+      # pts(corner_xy_topbar)
+      # pts(bl_xy_topbar)
+      
+    }
+    
   }
+  
+  
+  #####
   
   #record information
   cell_metadata[[i]]$nm_polys <- nm_polys
@@ -898,7 +1023,8 @@ svg_adj <- (96/72)
 #plot the names
 for(pli in 1:nplots){
   
-  svg(filename = paste0("~/lab_names_grid_", pli, ".svg"), 
+  names_svg_path <- paste0("~/", group_name, "_names_grid_", pli, ".svg")
+  svg(filename = names_svg_path, 
       width = dim_plot["w"] * svg_adj, height = dim_plot["h"] * svg_adj) 
   
   
@@ -1013,119 +1139,165 @@ for(pli in 1:nplots){
 }
 
 #### plot logos ####
+plot_logos <- F
 
-#read logos in
-mlab_path <- "/Users/nikgvetr/Pictures/lab_logo-metal_background_lab-not-band_monocolor.svg"
-mband_path <- "/Users/nikgvetr/Pictures/MD_logo-metal_background_band_monocolor.svg"
-mlab <- svgparser::read_svg(mlab_path, obj_type = 'data.frame')
-mband <- svgparser::read_svg(mband_path, obj_type = 'data.frame')
-
-#resize to the desired dimension
-
-#identify scale factor
-mlab_bbox <- bpoly2bbox(mlab[,c("x", "y")])
-mband_bbox <- bpoly2bbox(mband[,c("x", "y")])
-mlab_dim <- apply(mlab_bbox, 2, dr)
-mband_dim <- apply(mband_bbox, 2, dr)
-mlab_scale <- min(dim_logo / mlab_dim)
-mband_scale <- min(dim_logo / mband_dim)
-
-#scale coordinates
-mlab$x <- mlab$x * mlab_scale
-mlab$y <- mlab$y * mlab_scale
-mlab_dim <- mlab_dim * mlab_scale
-  
-mband$x <- mband$x * mband_scale
-mband$y <- mband$y * mband_scale
-mband_dim <- mband_dim * mband_scale
-
-#shift centers
-mlab_buffer <- dim_unit - mlab_dim
-mband_buffer <- dim_unit - mband_dim
-# mlab_buffer <- c(w = 0, h = 0)
-# mband_buffer <- c(w = 0, h = 0)
-mlab$x <- mlab$x - min(mlab$x)# + mlab_buffer["w"] / 2
-mlab$y <- mlab$y - min(mlab$y)# + mlab_buffer["h"] / 2
-mband$x <- mband$x - min(mband$x)# + mband_buffer["w"] / 2
-mband$y <- mband$y - min(mband$y)# + mband_buffer["h"] / 2
-
-#get coords and sf polys from file
-mband_fp <- convert_to_plot(mband)
-mlab_fp <- convert_to_plot(mlab)
-
-#the actual plotting
-
-#first test it out in the plot pane
-plot.new()
-plot.window(xlim = range(mband_fp$coords$x),
-            ylim = range(mband_fp$coords$y), asp = 1)
-plot_polys(mband_fp$fixed_polys)
-plot.new()
-# plot.window(xlim = range(mlab_fp$coords$x),
-#             ylim = range(mlab_fp$coords$y), asp = 1)
-plot.window(xlim = range(mband_fp$coords$x),
-            ylim = range(mband_fp$coords$y), asp = 1)
-plot_polys(mlab_fp$fixed_polys)
-
-#now plot to disk
-montgomery_1_seen <- F
-for(pli in 1:nplots){
-  
-  svg(filename = paste0("~/lab_logos_grid_", pli, ".svg"), 
-      width = dim_plot["w"] * svg_adj, height = dim_plot["h"] * svg_adj) 
+if(plot_logos){
   
   
-  #initialize plotting window
-  par(mar = c(0, 0, 0, 0), xaxs = "i", yaxs = "i")
+  #read logos in
+  mlab_path <- "/Users/nikgvetr/Pictures/lab_logo-metal_background_lab-not-band_monocolor.svg"
+  mband_path <- "/Users/nikgvetr/Pictures/MD_logo-metal_background_band_monocolor.svg"
+  vsc_path <- "/Users/nikgvetr/Pictures/VSC_logo_red.svg"
+  # mlab_path <- "/Users/nikgvetr/Pictures/lab_logo-metal_background_lab-not-band_monocolor_thinned.svg"
+  # mband_path <- "/Users/nikgvetr/Pictures/MD_logo-metal_background_band_monocolor_thinned.svg"
+  mlab <- svgparser::read_svg(mlab_path, obj_type = 'data.frame')
+  mband <- svgparser::read_svg(mband_path, obj_type = 'data.frame')
+  vsc <- svgparser::read_svg(vsc_path, obj_type = 'data.frame')
+  
+  #resize to the desired dimension
+  
+  #identify scale factor
+  mlab_bbox <- bpoly2bbox(mlab[,c("x", "y")])
+  mband_bbox <- bpoly2bbox(mband[,c("x", "y")])
+  mlab_dim <- apply(mlab_bbox, 2, dr)
+  mband_dim <- apply(mband_bbox, 2, dr)
+  mlab_scale <- min(dim_logo / mlab_dim)
+  mband_scale <- min(dim_logo / mband_dim)
+  
+  #scale coordinates
+  mlab$x <- mlab$x * mlab_scale
+  mlab$y <- mlab$y * mlab_scale
+  mlab_dim <- mlab_dim * mlab_scale
+  
+  mband$x <- mband$x * mband_scale
+  mband$y <- mband$y * mband_scale
+  mband_dim <- mband_dim * mband_scale
+  
+  #shift centers
+  mlab_buffer <- dim_unit - mlab_dim
+  mband_buffer <- dim_unit - mband_dim
+  # mlab_buffer <- c(w = 0, h = 0)
+  # mband_buffer <- c(w = 0, h = 0)
+  mlab$x <- mlab$x - min(mlab$x)# + mlab_buffer["w"] / 2
+  mlab$y <- mlab$y - min(mlab$y)# + mlab_buffer["h"] / 2
+  mband$x <- mband$x - min(mband$x)# + mband_buffer["w"] / 2
+  mband$y <- mband$y - min(mband$y)# + mband_buffer["h"] / 2
+  
+  #get coords and sf polys from file
+  mband_fp <- convert_to_plot(mband)
+  mlab_fp <- convert_to_plot(mlab)
+  
+  #add in VSC logo too
+  vsc_bbox <- bpoly2bbox(vsc[,c("x", "y")])
+  vsc_dim <- apply(vsc_bbox, 2, dr)
+  vsc_scale <- min(dim_vsc / vsc_dim)
+  vsc$x <- vsc$x * vsc_scale
+  vsc$y <- vsc$y * vsc_scale
+  vsc_dim <- vsc_dim * vsc_scale
+  vsc_buffer <- dim_unit - vsc_dim
+  vsc$x <- vsc$x - min(vsc$x)
+  vsc$y <- vsc$y - min(vsc$y)
+  vsc_fp <- convert_to_plot(vsc)
+  
+  #the actual plotting
+  
+  #first test it out in the plot pane
   plot.new()
-  plot.window(xlim = c(0, dim_plot["w"]), ylim = c(0, dim_plot["h"]), asp = 1)
+  plot.window(xlim = range(mband_fp$coords$x),
+              ylim = range(mband_fp$coords$y), asp = 1)
+  plot_polys(mband_fp$fixed_polys)
   
-  #set plotting settings
-  plot_outer_rect <- T
-  plot_inner_rect <- F
+  plot.new()
+  # plot.window(xlim = range(mlab_fp$coords$x),
+  #             ylim = range(mlab_fp$coords$y), asp = 1)
+  plot.window(xlim = range(mband_fp$coords$x),
+              ylim = range(mband_fp$coords$y), asp = 1)
+  plot_polys(mlab_fp$fixed_polys)
   
-  for(i in plot_inds[[pli]]){
-    # for(i in 63:63){
+  plot.new()
+  plot.window(xlim = range(vsc_fp$coords$x),
+              ylim = range(vsc_fp$coords$y), asp = 1)
+  rev_vsc_cols <- rev(unique(vsc_fp$fill_cols))[match(vsc_fp$fill_cols, unique(vsc_fp$fill_cols))]
+  plot_polys(vsc_fp$fixed_polys, col = vsc_fp$fill_cols)
+  plot_polys(vsc_fp$fixed_polys, col = rev_vsc_cols)
+  
+  #now plot to disk
+  montgomery_1_seen <- F
+  num_kate_seen <- 0
+  for(pli in 1:nplots){
     
-    cat(paste0(i, " "))
-    
-    #retrieve name info for logo adjustment
-    name_i <- plot_name_inds[[pli]][i]
-    loc_i <- plot_locs[[pli]][i]
-    nm <- name_metadata[[name_i]]
-    disp_x <- centers[loc_i,"x"] - dim_unit["w"]/2
-    disp_y <- centers[loc_i,"y"] - dim_unit["h"]/2
-    
-    #plot rects for troubleshooting
-    if(plot_outer_rect){
-      lines(cm$outer_bbox[,1] + disp_x,
-            cm$outer_bbox[,2] + disp_y, col = "grey20")
-    }
-    
-    if(plot_inner_rect){
-      lines(cm$inner_bbox[,1] + disp_x,
-            cm$inner_bbox[,2] + disp_y, lty = 2, col = "grey20")
-    }
+    svg(filename = paste0("~/", group_name, "_logos_grid_", pli, ".svg"), 
+        width = dim_plot["w"] * svg_adj, height = dim_plot["h"] * svg_adj) 
     
     
-    #write in logo
-    if(tolower(nm$text[2]) %in% c("dahl", "md") | (tolower(nm$text[2]) == "montgomery" & montgomery_1_seen) ){
-      plot_polys(mband_fp$fixed_polys, disp = c(disp_x, disp_y) + mband_buffer / 2)
-    } else {
+    #initialize plotting window
+    par(mar = c(0, 0, 0, 0), xaxs = "i", yaxs = "i")
+    plot.new()
+    plot.window(xlim = c(0, dim_plot["w"]), ylim = c(0, dim_plot["h"]), asp = 1)
+    
+    #set plotting settings
+    plot_outer_rect <- T
+    plot_inner_rect <- F
+    
+    for(i in plot_inds[[pli]]){
+      # for(i in 63:63){
       
-      #adjust for plotting logos
-      disp_x <- disp_x + logo_center_adj["x"]
-      disp_y <- disp_y + logo_center_adj["y"]
+      cat(paste0(i, " "))
       
-      plot_polys(mlab_fp$fixed_polys, disp = c(disp_x, disp_y) + mlab_buffer / 2)
-      if(tolower(nm$text[2]) == "montgomery"){
-        montgomery_1_seen <- T
+      #retrieve name info for logo adjustment
+      name_i <- plot_name_inds[[pli]][i]
+      loc_i <- plot_locs[[pli]][i]
+      nm <- name_metadata[[name_i]]
+      disp_x <- centers[loc_i,"x"] - dim_unit["w"]/2
+      disp_y <- centers[loc_i,"y"] - dim_unit["h"]/2
+      
+      #plot rects for troubleshooting
+      if(plot_outer_rect){
+        lines(cm$outer_bbox[,1] + disp_x,
+              cm$outer_bbox[,2] + disp_y, col = "grey20")
       }
+      
+      if(plot_inner_rect){
+        lines(cm$inner_bbox[,1] + disp_x,
+              cm$inner_bbox[,2] + disp_y, lty = 2, col = "grey20")
+      }
+      
+      
+      #write in logo
+      
+      #handle mband case
+      if(tolower(nm$text[2]) %in% c("dahl", "md") | (tolower(nm$text[2]) == "montgomery" & montgomery_1_seen) ){
+        plot_polys(mband_fp$fixed_polys, disp = c(disp_x, disp_y) + mband_buffer / 2)
+      } else {
+        
+        if(tolower(nm$text[2]) == "gates"){
+          if(num_kate_seen == 0){
+            disp_x <- disp_x + logo_center_adj["x"]
+            disp_y <- disp_y + logo_center_adj["y"]
+            plot_polys(mlab_fp$fixed_polys, disp = c(disp_x, disp_y) + mlab_buffer / 2)  
+          } else if(num_kate_seen == 1){
+            plot_polys(vsc_fp$fixed_polys, disp = c(disp_x, disp_y) + vsc_buffer / 2, col = vsc_fp$fill_cols)
+          } else {
+            plot_polys(vsc_fp$fixed_polys, disp = c(disp_x, disp_y) + vsc_buffer / 2, col = rev_vsc_cols)
+          }
+          num_kate_seen <- num_kate_seen + 1
+        } else {
+          #handle mlab case
+          disp_x <- disp_x + logo_center_adj["x"]
+          disp_y <- disp_y + logo_center_adj["y"]
+          plot_polys(mlab_fp$fixed_polys, disp = c(disp_x, disp_y) + mlab_buffer / 2)
+          if(tolower(nm$text[2]) == "montgomery"){
+            montgomery_1_seen <- T
+          }  
+        }
+        
+      }
+      
+      
     }
     
+    dev.off()
     
   }
-  
-  dev.off()
   
 }

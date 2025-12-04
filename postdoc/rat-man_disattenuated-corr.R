@@ -8,7 +8,7 @@ library(edgeR)
 library(limma)
 library(DESeq2)
 library(org.Hs.eg.db)
-library(clusterProfiler)
+# library(clusterProfiler)
 library(org.Rn.eg.db)
 library(biomaRt)
 library(MotrpacRatTraining6mo) # v1.6.0
@@ -370,8 +370,8 @@ if(!exists("testout_list")){
 incl_sex_comparison <- F
 list_only_pearson <- T
 
-# cairo_pdf("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_rat-man_comparison.pdf", width = 1200 / 72, height = 675 / 72 * 2, family="Arial Unicode MS", pointsize = 18)
-cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_rat-man_comparison", ifelse(incl_sex_comparison, "", "_no-direct-sex-effect"), ".pdf"), 
+# cairo_pdf("~/Documents/pass1b_fig8_rat-man_comparison.pdf", width = 1200 / 72, height = 675 / 72 * 2, family="Arial Unicode MS", pointsize = 18)
+cairo_pdf(paste0("~/Documents/pass1b_fig8_rat-man_comparison", ifelse(incl_sex_comparison, "", "_no-direct-sex-effect"), ".pdf"), 
           width = ifelse(incl_sex_comparison, 1200 / 72 * 2, 1200 / 72 * 2 * 5 / 6),
           height = 675 / 72 * 2 * 3 / 4,
           family="Arial Unicode MS", pointsize = 18)
@@ -880,9 +880,9 @@ disattenuate_correlation <- F
 incl_sex_comparison <- F
 list_only_pearson <- T
 
-# cairo_pdf("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_rat-man_comparison.pdf", width = 1200 / 72, height = 675 / 72 * 2, family="Arial Unicode MS", pointsize = 18)
-cairo_pdf(paste0("~/Documents/Documents - nikolai/motrpac_companion/figures/pass1b_fig8_rat-man_comparison_", 
-                 ifelse(disattenuate_correlation, "disattenuated_",),
+# cairo_pdf("~/Documents/pass1b_fig8_rat-man_comparison.pdf", width = 1200 / 72, height = 675 / 72 * 2, family="Arial Unicode MS", pointsize = 18)
+cairo_pdf(paste0("~/Documents/pass1b_fig8_rat-man_comparison_", 
+                 ifelse(disattenuate_correlation, "disattenuated_", ""),
                  "redux.pdf"), 
           width = 1200 / 72 * 2 * 5 / 6 * 4 / 5 * 3 / 4,
           height = 675 / 72 * 2 * 3 / 4,
@@ -1167,7 +1167,7 @@ tiss_rs <- list()
 
 par(xpd = NA, mar = c(5,5,5,3))
 
-for(tissue in tissues[1]){
+for(tissue in tissues[2]){
   sex = sex_i
   
   timepoint = timepoints[4]
@@ -1223,7 +1223,7 @@ for(tissue in tissues[1]){
     f <- function(df) 2 * pt(-abs(t), df) - p
     uniroot(f, c(lower, upper))$root   # returns ν
   }
-  inv_df(t = motrpac_data$zscore[1], p = motrpac_data$p_value[1])
+  # inv_df(t = motrpac_data$zscore[1], p = motrpac_data$p_value[1])
   
   
   df <- x_err^0 * 10 #placeholder for now
@@ -1253,7 +1253,6 @@ for(tissue in tissues[1]){
   #extract samples and inspect
   samps_r <- data.frame(as_draws_df(fit$draws("r")))$r
   tiss_rs[[tissue]] <- samps_r
-  
   
   plot(xval,
        yval,

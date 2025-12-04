@@ -21,14 +21,14 @@ panel.pts <- function(x, y, ...){
   }
 }
 panel.hist <- function(x, ...){
-  usr <- par("usr"); on.exit(par(usr))
+  usr <- par("usr"); 
   par(usr = c(usr[1:2], 0, 1.5))
   h <- hist(x, plot = F)
   breaks <- h$breaks; nB <- length(breaks)
   y <- h$counts; y <- y/max(y)
   rect(xleft = breaks[-nB], ybottom = 0, xright = breaks[-1], ytop = y, col = "grey50", ...)
   text(x = mean(par("usr")[1:2]), y = 1.5, pos = 1, col = "darkgreen",
-       labels = paste0("mean = ", round(mean(x), 3), ", var = ", round(var(x), 3)), cex = 2)
+       labels = paste0("mean = ", round(mean(x), 3), ", var = ", round(var(x), 3)), cex = 1.5)
 }
 
 #basic addition
@@ -61,8 +61,8 @@ summ[order(summ$ess_bulk),]
 
 #check inference
 samps <- data.frame(as_draws_df(out$draws()))
-pairs(samps[,c("a", "b", "c")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
-
+pairs(samps[,c("a", "b", "c")], diag.panel = panel.hist, lower.panel = panel.pts, 
+      upper.panel = NULL, cex.labels = 5)
 
 #basic addition, alternative bijection
 stan_program <- '
@@ -72,12 +72,13 @@ parameters {
 }
 transformed parameters {
     real c = a + b;
+    real d = a - b;
 }
 model {
     // priors
-    a ~ std_normal();
-    c ~ normal(0,sqrt(2));
-    target += log(abs(a-b));
+    c ~ normal(0,1);
+    d ~ normal(0,1);
+    target += log(abs(-1));
 }
 '
 
@@ -94,12 +95,12 @@ summ[order(summ$ess_bulk),]
 
 #check inference
 samps <- data.frame(as_draws_df(out$draws()))
-pairs(samps[,c("a", "b", "c")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
+pairs(samps[,c("a", "b", "c", "d")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
 
 #squaring
 stan_program <- '
 parameters {
-    real a;
+    real<lower=0> a;
 }
 transformed parameters {
     real b = a^2;
@@ -138,7 +139,7 @@ transformed parameters {
 model {
     a ~ lognormal(0, 1);
     c ~ lognormal(0, sqrt(2));
-    target += log(abs(a - b));
+    target += log(abs(a));
 }
 '
 if(!exists("curr_stan_program") || stan_program != curr_stan_program){
@@ -168,7 +169,6 @@ transformed parameters {
 }
 model {
     a ~ std_normal();
-    b ~ uniform(-1000000, 1000000);
     c ~ std_normal();
     target += log(abs(a));
 }
@@ -180,7 +180,8 @@ if(!exists("curr_stan_program") || stan_program != curr_stan_program){
 mod <- cmdstan_model(f)
 
 #fit model
-out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, parallel_chains = 4, adapt_delta = 0.99, refresh = 10, init = 0.1, max_treedepth = 15)
+out <- mod$sample(chains = 4, iter_sampling = 2E4, iter_warmup = 2E4, parallel_chains = 4, 
+                  adapt_delta = 0.99, refresh = 1000, init = 0.1, max_treedepth = 15)
 summ <- out$summary()
 summ[order(summ$ess_bulk),]
 
@@ -188,8 +189,6 @@ summ[order(summ$ess_bulk),]
 samps <- data.frame(as_draws_df(out$draws()))
 pairs(samps[,c("a", "b", "c")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
 pairs(log(abs(samps[,c("a", "b", "c")])), diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
-
-
 
 #product of three parameters?
 stan_program <- '
@@ -215,7 +214,9 @@ if(!exists("curr_stan_program") || stan_program != curr_stan_program){
 mod <- cmdstan_model(f)
 
 #fit model
-out <- mod$sample(chains = 4, iter_sampling = 2E3, iter_warmup = 2E3, parallel_chains = 4, adapt_delta = 0.85, refresh = 10, init = 0.1, max_treedepth = 15)
+out <- mod$sample(chains = 4, iter_sampling = 20E3, iter_warmup = 20E3, 
+                  parallel_chains = 4, adapt_delta = 0.999, refresh = 1000, init = 0.1, 
+                  max_treedepth = 15)
 summ <- out$summary()
 summ[order(summ$ess_bulk),]
 
@@ -225,3 +226,7 @@ meanhist(samps$a)
 meanhist(samps$b)
 meanhist(samps$c)
 meanhist(samps$d)
+
+pairs(samps[,c("a", "b", "c", "d")], diag.panel = panel.hist, lower.panel = panel.pts, upper.panel = NULL, cex.labels = 5)
+apply(samps[,c("a", "b", "c", "d")], 2, var)
+      

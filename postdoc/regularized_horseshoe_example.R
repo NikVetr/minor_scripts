@@ -13,6 +13,8 @@ library(data.table)
 #over the relevant utility functions
 # source("~/repos/Stan2R/R/functions.R")
 
+invlogit <- function(x) exp(x) / (1 + exp(x))
+
 subset_samps <- function(var_name, samps) {
   colnames(samps) <- gsub("\\[|,", ".", colnames(samps))
   colnames(samps) <- gsub("\\]", "", colnames(samps))
@@ -112,7 +114,6 @@ if(invert_effects){
 }
 
 #simulate outcomes
-invlogit <- function(x) exp(x) / (1 + exp(x))
 nB <- ceiling(prop_n0_b * p)
 nzi <- sample(1:p, nB, replace = F)
 nnzi <- setdiff(1:p, nzi)

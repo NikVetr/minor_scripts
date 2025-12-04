@@ -38,8 +38,9 @@ prettyScientificExpr <- function(numbers, digits = 2, pretty = T, scientific = T
 
 add_continuous_legend <- function(colors, labels, positions, n_rect = 100, x = NA, y = NA, h = NA, w = NA, 
                                   vertical = TRUE, xpd = NA, n_labels = 5, 
-                                  left_below = TRUE, log_scale = FALSE,
-                                  n_digits = 3, pretty = T, scientific = T, main = NA) {
+                                  left_below = TRUE, log_scale = FALSE, cex.main = 1,
+                                  n_digits = 3, pretty = T, scientific = T, main = NULL,
+                                  return_BB = F) {
   
   usr <- par("usr")
   xyr <- diff(range(usr[1:2])) / par("pin")[1] / diff(range(usr[3:4])) * par("pin")[2]
@@ -138,7 +139,6 @@ add_continuous_legend <- function(colors, labels, positions, n_rect = 100, x = N
                                               pretty = pretty, scientific = scientific)  
       }
       
-      
       label_positions <- sapply(labels_values$values, function(xi){
         if(log_scale){
           (log10(xi) - min_val) / slope + min_pos
@@ -147,12 +147,17 @@ add_continuous_legend <- function(colors, labels, positions, n_rect = 100, x = N
         }
       })
       
+      #hack to fix misaligned positions, need to fix properly later
+      label_positions <- label_positions - min(label_positions)
+      
       #check that none of the labels_vals are outside the range of the scale
-      in_range <- label_positions >= 0 & label_positions <= 1
+      eps <- diff(label_positions)[1]/100
+      in_range <- label_positions >= (0-eps) & label_positions <= (1+eps)
       labels_values$values <- labels_values$values[in_range]
       labels_values$labels <- labels_values$labels[in_range]
       label_positions <- label_positions[in_range]
       label_vals <- labels_values[["labels"]]
+      
       
       # #if we got rid of boundary labels, add them back in?
       # interlab_dist <- 1 / n_labels
@@ -191,68 +196,343 @@ add_continuous_legend <- function(colors, labels, positions, n_rect = 100, x = N
   }
   
   #write in the title
-  if(!is.na(main)){
+  if(!is.null(main)){
     if(left_below){
-      text(x = x + w / 2, y = y + strheight(main) / 4 * 3, labels = main, xpd = xpd, font = 2)    
+      text(x = x + w / 2, y = y + strheight(main) / 4 * 3, labels = main, xpd = xpd, font = 2, cex = cex.main)    
     } else {
-      text(x = x + w, y = y - h / 2, labels = main, xpd = xpd, font = 2, pos = 4)  
+      text(x = x + w, y = y - h / 2, labels = main, xpd = xpd, font = 2, pos = 4, cex = cex.main)  
+    } 
+  }
+  
+  #return bounding box if requested
+  if (return_BB) {
+    # start with color bar extent
+    bb_xmin <- x
+    bb_xmax <- x + w
+    bb_ymin <- y - h
+    bb_ymax <- y
+    
+    # include tick labels if they were drawn
+    if (exists("label_vals") && length(label_vals) > 0) {
+      lb <- left_below
+      
+      if (vertical) {
+        for (i in seq_along(label_vals)) {
+          label_pos <- label_positions[i]
+          label_val <- label_vals[[i]]
+          
+          text_x <- x - (strwidth(label_val) / 2 + w / 2) * ifelse(lb, 1, -1) + ifelse(lb, 0, w)
+          text_y <- y - h + h * label_pos
+          
+          lw <- strwidth(label_val)
+          lh <- strheight(label_val)
+          
+          bb_xmin <- min(bb_xmin, text_x - lw / 2)
+          bb_xmax <- max(bb_xmax, text_x + lw / 2)
+          bb_ymin <- min(bb_ymin, text_y - lh / 2)
+          bb_ymax <- max(bb_ymax, text_y + lh / 2)
+        }
+      } else {
+        for (i in seq_along(label_vals)) {
+          label_pos <- label_positions[i]
+          label_val <- label_vals[[i]]
+          
+          text_x <- x + label_pos * w
+          text_y <- y - (h * ifelse(lb, 1, 0) + strheight(lb) / 2 + h / 2) * ifelse(lb, 1, -1)
+          
+          lw <- strwidth(label_val)
+          lh <- strheight(label_val)
+          
+          bb_xmin <- min(bb_xmin, text_x - lw / 2)
+          bb_xmax <- max(bb_xmax, text_x + lw / 2)
+          bb_ymin <- min(bb_ymin, text_y - lh / 2)
+          bb_ymax <- max(bb_ymax, text_y + lh / 2)
+        }
+      }
     }
     
+    # include title if present
+    if (!is.null(main)) {
+      if (left_below) {
+        title_x <- x + w / 2
+        title_y <- y + strheight(main, cex = cex.main) * 3 / 4
+        mw <- strwidth(main, cex = cex.main)
+        mh <- strheight(main, cex = cex.main)
+        
+        bb_xmin <- min(bb_xmin, title_x - mw / 2)
+        bb_xmax <- max(bb_xmax, title_x + mw / 2)
+        bb_ymin <- min(bb_ymin, title_y - mh / 2)
+        bb_ymax <- max(bb_ymax, title_y + mh / 2)
+      } else {
+        title_x <- x + w
+        title_y <- y - h / 2
+        mw <- strwidth(main, cex = cex.main)
+        mh <- strheight(main, cex = cex.main)
+        
+        bb_xmin <- min(bb_xmin, title_x)
+        bb_xmax <- max(bb_xmax, title_x + mw)
+        bb_ymin <- min(bb_ymin, title_y - mh / 2)
+        bb_ymax <- max(bb_ymax, title_y + mh / 2)
+      }
+    }
+    
+    return(c(xmin = bb_xmin, xmax = bb_xmax, ymin = bb_ymin, ymax = bb_ymax))
   }
   
 }
 
-bezier_curve <- function(x0, y0, x1, y1, p = 0.5, n = 128, k = 1, col = 1, ...) {
+
+bezier_curve <- function(x0, y0, x1, y1,
+                         p = 0.5, n = 128, k = 1,
+                         ends = c("flat", "steep")[1],
+                         col = 1, return_points = FALSE, debug = FALSE,
+                         xpd = NA, ...) {
+  # choose behavior: "flat" = horizontal tangents at ends (original);
+  #                  "steep" = vertical tangents at ends (the “other direction”)
+  if(is.numeric(ends)){
+    ends <- c("flat", "steep")[ends]
+  }
+  ends <- match.arg(ends)  
   
-  #handle vector inputs
+  
+  # handle vector inputs (recurse over elementwise args)
   arg_vals <- as.list(environment())
   nargs <- length(arg_vals)
   arg_lens <- sapply(arg_vals, length)
-  if(any(arg_lens > 1)){
-    for(i in 1:max(arg_lens)){
+  if (any(arg_lens > 1)) {
+    for (i in 1:max(arg_lens)) {
       arg_inds <- (i - 1) %% arg_lens + 1
-      arg_vals_i <- lapply(setNames(1:nargs, names(arg_vals)), function(j) arg_vals[[j]][arg_inds[j]])
+      arg_vals_i <- lapply(setNames(1:nargs, names(arg_vals)),
+                           function(j) arg_vals[[j]][arg_inds[j]])
       do.call(bezier_curve, arg_vals_i)
     }
-  } else {
-    # midpoint for curve
-    xm <- x0 + p * (x1 - x0)
-    ym <- y0 + p * (y1 - y0)
-    
-    # bezier control points
+    return(invisible(NULL))
+  }
+  
+  # control points
+  if (ends == "flat") {
+    # horizontal tangents at endpoints (original behavior)
     control_x1 <- x0 + p * (x1 - x0) * k
     control_y1 <- y0
     control_x2 <- x1 - (1 - p) * (x1 - x0) * k
     control_y2 <- y1
-    
-    # calculate bezier curve
-    t <- seq(0, 1, length.out = n)
-    curve_x <- (1 - t)^3 * x0 + 3 * (1 - t)^2 * t * control_x1 + 3 * (1 - t) * t^2 * control_x2 + t^3 * x1
-    curve_y <- (1 - t)^3 * y0 + 3 * (1 - t)^2 * t * control_y1 + 3 * (1 - t) * t^2 * control_y2 + t^3 * y1
-    
-    # plot
-    lines(curve_x, curve_y, col = col, ...)
+  } else {
+    # vertical tangents at endpoints (steep at start/end)
+    control_x1 <- x0
+    control_y1 <- y0 + p * (y1 - y0) * k
+    control_x2 <- x1
+    control_y2 <- y1 - (1 - p) * (y1 - y0) * k
+  }
+  
+  if (debug) {
+    cat("# control points:\n")
+    cat(sprintf("# P0=(%.4f, %.4f)  P1=(%.4f, %.4f)\n", x0, y0, control_x1, control_y1))
+    cat(sprintf("# P2=(%.4f, %.4f)  P3=(%.4f, %.4f)\n", control_x2, control_y2, x1, y1))
+    # endpoint derivatives of a cubic Bézier: 3*(P1-P0) at t=0; 3*(P3-P2) at t=1
+    d0x <- 3 * (control_x1 - x0); d0y <- 3 * (control_y1 - y0)
+    d1x <- 3 * (x1 - control_x2); d1y <- 3 * (y1 - control_y2)
+    cat(sprintf("# dB/dt at t=0  ≈ (%.4f, %.4f)\n", d0x, d0y))
+    cat(sprintf("# dB/dt at t=1  ≈ (%.4f, %.4f)\n", d1x, d1y))
+  }
+  
+  # sample curve
+  t <- seq(0, 1, length.out = n)
+  curve_x <- (1 - t)^3 * x0 +
+    3 * (1 - t)^2 * t * control_x1 +
+    3 * (1 - t) * t^2 * control_x2 +
+    t^3 * x1
+  curve_y <- (1 - t)^3 * y0 +
+    3 * (1 - t)^2 * t * control_y1 +
+    3 * (1 - t) * t^2 * control_y2 +
+    t^3 * y1
+  
+  # draw
+  lines(curve_x, curve_y, col = col, xpd = xpd, ...)
+  
+  if (return_points) {
+    return(invisible(list(x = curve_x, y = curve_y)))
+  } else {
+    return(invisible(NULL))
   }
 }
 
-
-my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
-                       plot_diagonal_labels = T, middle_line_index_range = c(47,53),
-                       cell_cols = c("blue", "white", "red"),
-                       space_scale_ylabs = 1.4, reorder_mat = T,
-                       symmetric_cols = T, diag_matters = F, legend_title = "", 
-                       plot_labels = T, plot_legend = T, col_scale = NULL, black_diag = F){
-  
-  
-  if(is.null(mat_sizes)){
-    mat_sizes <- mat_cols^0
+darken_rgb <- function(cols, amount = 0.3) {
+  # amount: 0 = no change, 1 = full black
+  if (amount < 0 || amount > 1) {
+    stop("amount must be between 0 and 1")
   }
+  
+  cols_rgb <- col2rgb(cols)  # 3 x n matrix (r, g, b)
+  
+  # scale toward black
+  scale_factor <- 1 - amount
+  darker_rgb <- cols_rgb * scale_factor
+  
+  # clamp just in case
+  darker_rgb[darker_rgb < 0] <- 0
+  darker_rgb[darker_rgb > 255] <- 255
+  
+  darker_cols <- rgb(
+    red   = darker_rgb[1, ],
+    green = darker_rgb[2, ],
+    blue  = darker_rgb[3, ],
+    maxColorValue = 255
+  )
+  
+  return(darker_cols)
+}
+
+my_heatmap <- function(mat_cols, mat_size_rule = NULL, dim_names = NULL,
+                       plot_diagonal_labels = F, middle_line_index_range = c(47,53),
+                       cell_cols = c("blue", "white", "red"),
+                       space_scale_ylabs = 1.4, reorder_mat = T, 
+                       cex.leg = 1, cex_lab = 1, lwd_for_lines = 1, 
+                       symmetric_cols = T, diag_matters = F, legend_title = "", 
+                       plot_labels = T, plot_legend = T, col_scale = NULL,
+                       leg_loc_scale = c(x=0,y=0),
+                       plot_guiding_lines = F, tlbr_diag = T, use_bezier = F,
+                       mds_method = c("cailliez", "isoMDS", "smacof", "linear", "OLO", "hclust")[3],
+                       blockmodel = F, highlight_blocks = T, blocks_to_highlight = "all",
+                       darken_lc_by = 0.1, asp = NA, space_for_sep = 1,
+                       demarcate_maps = T, outer_border = F, 
+                       outer_border_brackets = T, border.lwd = 2,
+                       plot_numbers = T, plot_rects = T, number_col = NULL,
+                       main = NULL, cex.main = 1.25){
+  
+  #quick helper
+  ifelse2 <- function(test, yes, no) if(test){return(yes)}else{return(no)}
+  
+  #do we have one matrix, or a list of matrices?
+  multimat <- "list" %in% class(mat_cols)
+  if(multimat){
+    mat_cols_list <- mat_cols
+  } else {
+    mat_cols_list <- list(mat_cols)
+  }
+  
+  #name rows / columns if unnamed
+  if(is.null(colnames(mat_cols_list[[1]])) & 
+     is.null(rownames(mat_cols_list[[1]]))){
+    mat_cols_list <- lapply(mat_cols_list, function(mci){
+      mci_new <- mci
+      rownames(mci_new) <- paste0("dim_", 1:nrow(mci))
+      colnames(mci_new) <- paste0("dim_", 1:ncol(mci))
+      return(mci_new)
+    })
+  } else {
+    stop("both rows and columns need to be named")
+  }
+  nmats <- length(mat_cols_list)
+  mat_names <- names(mat_cols_list)
+  mat_cols <- mat_cols_list[[1]] #do all the ordering etc. off the first matrix
+  
+  if(is.null(mat_size_rule)){
+    mat_sizes_list <- lapply(mat_cols_list, function(ms) ms^0)
+  } else if(mat_size_rule == "abs"){
+    mat_sizes_list <- lapply(mat_cols_list, function(ms) abs(ms)^0.5)
+  }
+  mat_sizes <- mat_sizes_list[[1]]
   
   if(reorder_mat){
-    mat_order <- order(cmdscale(1.1 * max(abs(mat_cols)) - mat_cols, k = 1))
+    dists <- max(mat_cols) - mat_cols
+    if(mds_method == "cailliez") {
+      fit <- cmdscale(as.dist(dists), k = 1, add = T)
+      if("list" %in% class(fit)) fit <- fit$points
+      x1d <- setNames(as.numeric(fit), rownames(fit))
+    } else if(mds_method == "isoMDS") {
+      fit <- MASS::isoMDS(as.dist(dists), k = 1)$points
+      x1d <- setNames(as.numeric(fit), rownames(fit))
+    } else if(mds_method == "smacof") {
+      fit <- smacof::smacofSym(as.dist(dists), ndim = 1, type = "ordinal")$conf
+      x1d <- setNames(as.numeric(fit), rownames(fit))
+    } else if(mds_method == "linear") {
+      x1d <- setNames(1:nrow(dists)/nrow(dists), rownames(dists))
+    } else if(mds_method == "OLO") {
+      tree <- seriation::seriate(as.dist(dists), method = "OLO")[[1]]
+      x1d <- setNames(1:nrow(dists)/nrow(dists), tree$labels)
+    } else if(mds_method == "hclust") { #not an mds method lol
+      tree <- hclust(as.dist(dists))
+      tree <- dendsort::dendsort(as.dendrogram(tree))
+      tree <- as.hclust(tree)
+      x1d <- setNames(1:nrow(dists)/nrow(dists), tree$labels)
+    }
+    mat_order <- names(x1d)[order(x1d)]
     mat_cols <- mat_cols[mat_order, mat_order]
     mat_sizes <- mat_sizes[mat_order, mat_order]
+  } else {
+    x1d <- setNames(0:(nrow(mat_cols)-1)/(nrow(mat_cols)-1),
+                    rownames(mat_cols))
   }
+  
+  #specify color vector for labels
+  lab_cols <- rep(1, nrow(mat_cols))
+  
+  #figure out range of values to omit leading 0s or not for cell labels
+  eps <- 1E-6
+  vals_for_range <- as.numeric(mat_cols[!is.na(mat_cols)])
+  omit_leading_zero <- length(vals_for_range) > 0 &&
+    all(vals_for_range >= -(1+eps) & vals_for_range <= (1+eps))
+  
+  #run blockmodeling algorithm
+  lab_cols <- rep(1, nrow(mat_cols))
+  lab_fonts <- rep(1, nrow(mat_cols))
+  line_lwds <- rep(lwd_for_lines, nrow(mat_cols))
+  if(blockmodel) {
+    adj_mat <- mat_cols - min(mat_cols)
+    diag(adj_mat) <- 0
+    bm <- blockmodels::BM_gaussian(
+      membership_type = "SBM_sym",
+      adj            = adj_mat,
+      verbosity      = 0,
+      plotting       = ""
+    )
+    bm$estimate()
+    best_q <- which.max(bm$ICL)
+    membs <- bm$memberships[[best_q]]$Z
+    block_ids <- setNames(max.col(membs, ties.method = "first"), 
+                          rownames(adj_mat))
+    # block_sets <- split(names(block_ids), block_ids)
+    
+    #order entries within and between blocks to mds result
+    block_ids <- block_ids[names(x1d)]
+    block_meanlocs <- sapply(split(x1d, block_ids), mean)
+    block_ids <- setNames(order(block_meanlocs)[block_ids],
+                          names(block_ids)) #between blocks
+    block_factor <- factor(block_ids, levels = sort(unique(block_ids))) #within blocks
+    mat_order <- names(block_factor)[order(block_factor, x1d)]
+    
+    #and reorder to final configuration
+    block_ids <- block_ids[mat_order]
+    mat_cols  <- mat_cols[mat_order, mat_order, drop = FALSE]
+    mat_sizes <- mat_sizes[mat_order, mat_order, drop = FALSE]
+    
+    #get block colors too
+    block_cols <- rep(1, best_q)
+    block_fonts <- rep(1, best_q)
+    lwd_lines <- rep(lwd_for_lines, best_q)
+    block_cols_transp <- adjustcolor(block_cols, 0)
+    if(highlight_blocks){
+      block_cols_hl <- ifelse2(best_q > 2 & best_q < 9,
+                            RColorBrewer::brewer.pal(best_q, "Dark2"),
+                            rainbow(best_q))
+      block_cols_transp_hl <- adjustcolor(block_cols_hl, 0.25)  
+      if(all(blocks_to_highlight == "all")){
+        block_cols <- block_cols_hl
+        block_cols_transp <- block_cols_transp_hl
+      } else {
+        blocks_to_highlight <- pmax(pmin(blocks_to_highlight, best_q), 1)
+        block_cols[blocks_to_highlight] <- block_cols_hl[blocks_to_highlight]
+        block_cols_transp[blocks_to_highlight] <- block_cols_transp_hl[blocks_to_highlight]
+        block_fonts[blocks_to_highlight] <- 2
+        lwd_lines[blocks_to_highlight] <- lwd_lines * 1.5
+      }
+    }
+    block_cols_dark <- darken_rgb(block_cols, amount = darken_lc_by)
+    lab_cols <- block_cols_dark[block_ids]
+    lab_fonts <- block_fonts[block_ids]
+    line_lwds <- lwd_lines[block_ids]
+  }
+  
   
   if(is.null(dim_names)){
     dim_names <- rownames(mat_cols)
@@ -263,13 +543,29 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   nc <- ncol(mat_cols)
   
   # Generate indices for rows and columns
-  rows <- matrix(rep(1:nr, each = nc), nr, nc)
-  cols <- matrix(rep(1:nc, times = nr), nr, nc)
+  rows <- row(mat_cols)
+  cols <- col(mat_cols)
+  
+  if (tlbr_diag) {
+    # flip rows so that row 1 is at the top
+    rows <- nr + 1 - rows
+  }
   
   # Create the plot area
   # par(mar = c(2,18,8,2))
-  plot(rows, cols, type = "n", xlab = "", ylab = "", 
-       xlim = c(0.5, nr + 0.5), ylim = c(0.5, nc + 0.5), xaxt = "n", yaxt = "n", frame = F)
+  if(multimat){
+    plot(rows, cols, type = "n", xlab = "", ylab = "", 
+         xlim = c(0.5, (nr + 1.5) * nmats), 
+         ylim = c(0.5, nc + 0.5), 
+         xaxt = "n", yaxt = "n", frame = F, asp = asp)
+  } else {
+    plot(rows, cols, type = "n", xlab = "", ylab = "", 
+         xlim = c(0.5, nr + 0.5), ylim = c(0.5, nc + 0.5), 
+         xaxt = "n", yaxt = "n", frame = F, asp = asp)  
+  }
+  pusr <- par("usr")
+  w <- diff(pusr[1:2])
+  h <- diff(pusr[3:4])
   
   # Adding a color palette (you can customize this)
   colors <- colorRampPalette(cell_cols)(100)
@@ -277,7 +573,10 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
   # Map mat_cols values to color indices
   if(symmetric_cols){
     if(is.null(col_scale)){
-      max_abs_val <- ifelse(diag_matters, max(abs(mat_cols)), max(abs(mat_cols[upper.tri(mat_cols)])))  # Maximum absolute value for scaling
+      max_abs_val <- ifelse(diag_matters, 
+                            max(abs(unlist(mat_cols_list))), 
+                            max(abs(unlist(lapply(mat_cols_list, function(mc) mc[upper.tri(mc)]))))
+                            )  # Maximum absolute value for scaling
     } else {
       max_abs_val <- max(abs(col_scale))
     }
@@ -291,110 +590,354 @@ my_heatmap <- function(mat_cols, mat_sizes = NULL, dim_names = NULL,
     }
     breaks <- seq(range_mat_cols[1], range_mat_cols[2], length.out = 101) * (1+1E-6)
   }
-  color_indices <- matrix(cut(mat_cols, breaks = breaks, labels = FALSE), nr, nc)
+  #guard against constant matrix
+  if(length(unique(breaks)) == 1){
+    breaks <- seq(max_abs_val-1, max_abs_val+1, length.out = 101) * (1+1E-6)
+  }
   
-  # Normalize mat_sizes for size mapping (scaling from range [0.5, 1])
-  size <- abs(mat_sizes - 0.5) * 2
   
-  # Plot the heatmap-like rectangles
-  for (i in 1:nr^2) {
-    x_center <- cols[i]
-    y_center <- rows[i]
-    half_size <- size[i] / 2  # Half of the side length to adjust for centering
+  #iterate through all of our listed matrices
+  for(mi in 1:nmats){
     
-    #skip plotting diagonal if it does not matter (eg, in correlation matrices)
-    if(!diag_matters){
-      if(cols[i] == rows[i]){
-        if(black_diag){
-          # Draw rectangles
-          rect(x_center - half_size, y_center - half_size, 
-               x_center + half_size, y_center + half_size, 
-               col = 1, border = NA)
+    #get core level variables
+    disp_x_by <- (mi-1) * (nr + space_for_sep)
+    mat_cols <- mat_cols_list[[mi]]
+    mat_sizes <- mat_sizes_list[[mi]]
+    
+    #permute everything correctly
+    mat_cols  <- mat_cols[mat_order, mat_order, drop = FALSE]
+    mat_sizes <- mat_sizes[mat_order, mat_order, drop = FALSE]
+    
+    #get cell colors
+    color_indices <- matrix(cut(mat_cols, breaks = breaks, labels = FALSE), nr, nc)
+    
+    #get number colors
+    if(is.null(number_col)){
+      if(plot_rects){
+        num_col_mat <- matrix("white", nrow = nr, ncol = nc)
+      } else {
+        num_col_mat <- matrix(colors[color_indices], nrow = nr, ncol = nc)
+      }
+    } else {
+      num_col_mat <- matrix(number_col, nrow = nr, ncol = nc)
+    }
+    
+    # Normalize mat_sizes for size mapping (scaling from range [0.5, 1])
+    if(max(mat_sizes) > 1){
+      size <- mat_sizes / max(mat_sizes)  
+    } else {
+      size <- mat_sizes
+    }
+    
+    
+    #label heatmap
+    
+    #left labels (for names)
+    if(plot_labels){
+      xlocs_ll <- -1/2 - diff(pusr[1:2])/10/nmats
+      ylocs_ll <- (1:nr - nr/2) * space_scale_ylabs + nr / 2 * space_scale_ylabs - nr/10
+      
+      if(mi == 1){
+        text(x = xlocs_ll, y = ylocs_ll, labels = rev(paste0(1:nr, ". ", dim_names)), 
+             xpd = NA, pos = 2, cex = cex_lab * 0.8, col = rev(lab_cols), font = rev(lab_fonts))
+        if(use_bezier){
+          bezier_curve(x0 = -1/2, x1 = xlocs_ll - 0.5 * nr / 30, y0 = 1:nr, 
+                       y1 = ylocs_ll, xpd = NA, col = rev(lab_cols), lwd = rev(line_lwds))
+        } else {
+          segments(x0 = -1/2, x1 = xlocs_ll - 0.5 * nr / 30, y0 = 1:nr, y1 = ylocs_ll, 
+                   xpd = NA, col = rev(lab_cols), lwd = rev(line_lwds))
+        }  
+      }
+      
+      #top labels
+      disp_size <- nr / 30
+      text(1:nr + disp_x_by, nr + rep(0:1, ceiling(nr/2))[1:nr] * disp_size + 0.1, 
+           labels = ifelse2(tlbr_diag, 1:nr, nr:1), pos = 3, cex = cex_lab * 0.5, xpd = NA, 
+           col = lab_cols, font = lab_fonts)
+      segments(x0 = 1:(nr/2) * 2 + disp_x_by, 
+               x1 = 1:(nr/2) * 2 + disp_x_by, 
+               y0 = nr + 0.75,
+               y1 = nr + disp_size + 0.6,
+               xpd = NA, col = lab_cols[1:(nr/2) * 2], 
+               lwd = line_lwds[1:(nr/2) * 2])
+      
+      #bottom labels
+      text(1:nr + disp_x_by, 1 - rep(0:1, ceiling(nr/2))[1:nr] * disp_size - 0.25, 
+           labels = ifelse2(tlbr_diag, 1:nr, nr:1), pos = 1, cex = cex_lab * 0.5, xpd = NA, 
+           col = lab_cols, font = lab_fonts)
+      segments(x0 = 1:(nr/2) * 2 + disp_x_by, 
+               x1 = 1:(nr/2) * 2 + disp_x_by, 
+               y0 = 0.25,
+               y1 = -disp_size + 0.4,
+               xpd = NA, col = lab_cols[1:(nr/2) * 2], 
+               lwd = line_lwds[1:(nr/2) * 2])
+      
+    }
+    
+    
+    #diagonal labels?
+    if (plot_diagonal_labels) {
+      
+      # find vertical middle-band segments that contain the diagonal element in each column
+      coords_middle_lines <- do.call(rbind, lapply(1:nr, function(i) {
+        cis <- color_indices[, i]
+        
+        in_mid <- cis > middle_line_index_range[1] & cis < middle_line_index_range[2]
+        
+        rlecont <- rle(in_mid)
+        rlec <- data.frame(val = rlecont$values, len = rlecont$lengths)
+        
+        rlec$i0 <- cumsum(c(1, rlec$len[-nrow(rlec)]))
+        rlec$i1 <- cumsum(rlec$len)
+        
+        rlec <- rlec[rlec$val, ]
+        
+        # keep only segments that contain the diagonal row i
+        rlec_mid <- rlec[rlec$i0 <= i & rlec$i1 >= i, ]
+        
+        if (nrow(rlec_mid) > 0) {
+          data.frame(x0 = i, x1 = i,
+                     y0 = rlec_mid$i0, y1 = rlec_mid$i1)
+        } else {
+          NULL
         }
-        next()
+      }))
+      
+      #full guiding grid (under everything)
+      if (plot_guiding_lines) {
+        #horiz guides
+        segments(x0 = ifelse(mi==1, -1/2, 0) + disp_x_by, 
+                 x1 = nr + disp_x_by + 1/2, 
+                 y0 = 1:nr, 
+                 y1 = 1:nr,
+                 col = adjustcolor(1, 0.5), lty = 3)
+        #vert guides
+        segments(x0 = 1:nr + disp_x_by, 
+                 x1 = 1:nr + disp_x_by, 
+                 y0 = 0.25, 
+                 y1 = nr + 0.75,
+                 col = adjustcolor(1, 0.5), lty = 3)
+      }
+      
+      #extra vertical guides along "blank" parts that cross the diagonal
+      if (!is.null(coords_middle_lines)) {
+        
+        # map matrix row indices to plotting y-coordinates if tlbr_diag flips rows
+        if (tlbr_diag) {
+          y0_plot <- nr + 1 - coords_middle_lines$y1
+          y1_plot <- nr + 1 - coords_middle_lines$y0
+        } else {
+          y0_plot <- coords_middle_lines$y0
+          y1_plot <- coords_middle_lines$y1
+        }
+        
+        segments(x0 = coords_middle_lines$x0 + disp_x_by,
+                 y0 = y0_plot,
+                 x1 = coords_middle_lines$x1 + disp_x_by,
+                 y1 = y1_plot,
+                 col = adjustcolor(1, 0.1))
       }
     }
     
-    # Draw rectangles
-    rect(x_center - half_size, y_center - half_size, 
-         x_center + half_size, y_center + half_size, 
-         col = colors[color_indices[i]], border = NA)
-  }
-  
-  #label heatmap
-  
-  #left labels (for names)
-  if(plot_labels){
-    xlocs_ll <- par("usr")[1] - diff(par("usr")[1:2])/10
-    ylocs_ll <- (1:nr - nr/2) * space_scale_ylabs + nr / 2 * space_scale_ylabs - nr/10
-    text(x = xlocs_ll, y = ylocs_ll, labels = paste0(nr:1, ". ", dim_names), 
-         xpd = NA, pos = 2, col = 1, cex = 0.8)
-    segments(x0 = -0.5, x1 = xlocs_ll - 0.5, y0 = 1:nr, y1 = ylocs_ll, xpd = NA)
-    
-    #top labels
-    text(1:nr, nr + rep(0:1, ceiling(nr/2))[1:nr], 
-         1:nr, pos = 3, cex = 0.5, xpd = NA)
-    segments(x0 = 1:(nr/2) * 2, 
-             x1 = 1:(nr/2) * 2, 
-             y0 = nr+0.75,
-             y1 = nr+1.75,
-             xpd = NA)
-    
-    #bottom labels
-    text(1:nr, 1 - rep(0:1, ceiling(nr/2))[1:nr], 
-         1:nr, pos = 1, cex = 0.5, xpd = NA)
-    segments(x0 = 1:(nr/2) * 2, 
-             x1 = 1:(nr/2) * 2, 
-             y0 = 0.25,
-             y1 = -0.75,
-             xpd = NA)
-    
-    #diagonal labels?
-    if(plot_diagonal_labels){
-      #get the indices of the rows that are blank enough and contain the diagonal
-      coords_middle_lines <- do.call(rbind, lapply(1:nr, function(i){
-        cis <- color_indices[,i]
-        rlecont <- rle(cis > middle_line_index_range[1] & cis < middle_line_index_range[2])
-        rlec <- data.frame(val = rlecont$values, len = rlecont$lengths)
-        rlec$i0 <- cumsum(c(1, rlecont$lengths[-nrow(rlec)]))
-        rlec$i1 <- cumsum(rlecont$lengths)
-        rlec <- rlec[rlec$val,]
-        rlec_mid <- rlec[rlec$i0 <= i & rlec$i1 >= i,]
-        if(nrow(rlec_mid) > 0){
-          out <- data.frame(x0 = i, x1 = i, y0 = rlec_mid$i0, y1 = rlec_mid$i1)  
-        } else {
-          out <- NULL
-        }
-        return(out)
-      }))
+    #actually plot the diagonal labels
+    if (plot_diagonal_labels && !is.null(color_indices)) {
       
-      #draw guiding lines
-      if(!is.null(coords_middle_lines)){
-        segments(x0 = coords_middle_lines$x0, 
-                 y0 = coords_middle_lines$y0, 
-                 x1 = coords_middle_lines$x1, 
-                 y1 = coords_middle_lines$y1,
-                 adjustcolor(1, 0.1))
-        
-        #plot the labels 
-        rect(xleft = 1:nr - 0.5, ybottom = 1:nr - 0.5, 
-             xright = 1:nr + 0.5, ytop = 1:nr + 0.5, 
-             col = colors[round(length(colors)/2)], border = NA)
-        text(1:nr, 1:nr, 1:nr, cex = 0.5, xpd = NA, col = adjustcolor(1, 0.5))
+      # compute diagonal positions in plotting coordinates
+      diag_x <- 1:nr
+      
+      if (tlbr_diag) {
+        diag_y <- nr + 1 - (1:nr)
+        diag_lab <- 1:nr
+      } else {
+        diag_y <- 1:nr
+        diag_lab <- nr:1
       }
       
-    } 
+      # neutral background on the diagonal
+      rect(xleft = diag_x - 0.5 + disp_x_by, xright = diag_x + 0.5 + disp_x_by,
+           ybottom = diag_y - 0.5, ytop = diag_y + 0.5,
+           col = colors[round(length(colors) / 2)], border = NA)
+      
+      # diagonal index labels
+      text(diag_x + disp_x_by, diag_y, diag_lab,
+           cex = cex_lab * 0.5, xpd = NA,
+           col = ifelse2(blockmodel, lab_cols, 
+                         adjustcolor(1, 0.5)),
+           font = ifelse2(blockmodel, lab_fonts, 
+                         1),
+      )
+    }
+    
+    
+    #plot block highlights
+    if(blockmodel & mi == 1){
+      for(bi in 1:best_q){
+        block_inds <- range(which(block_ids == bi))
+        
+        if(tlbr_diag) {
+          ybottom <- nr - block_inds[1] + 1 + 1/2
+          ytop    <- nr - block_inds[2] + 1 - 1/2
+        } else {
+          ybottom <- block_inds[1] - 1/2
+          ytop    <- block_inds[2] + 1/2
+        }
+        
+        rect(xleft = block_inds[1] - 1/2,
+             xright = block_inds[2] + 1/2,
+             ybottom = ybottom,
+             ytop = ytop,
+             col = block_cols_transp[bi],
+             border = NA
+        )
+      }
+    }
+    
+    # Plot the heatmap-like rectangles
+    for (i in 1:nr^2) {
+      x_center <- cols[i]
+      y_center <- rows[i]
+      half_size <- size[i] / 2  # Half of the side length to adjust for centering
+      
+      #skip plotting diagonal if it does not matter (eg, in correlation matrices)
+      if(tlbr_diag){
+        on_diag <- cols[i] == (nr - rows[i] + 1)
+      } else {
+        on_diag <- cols[i] == rows[i]
+      }
+      
+      if(!diag_matters){
+        if(on_diag){
+          next()
+        }
+      }
+      
+      # Draw rectangles
+      
+      # Draw rectangles
+      if(plot_rects){
+        rect(x_center - half_size + disp_x_by, y_center - half_size, 
+             x_center + half_size + disp_x_by, y_center + half_size, 
+             col = colors[color_indices[i]], border = NA, xpd = NA)
+      }
+      
+      # Draw numbers
+      if(plot_numbers && !is.na(mat_cols[i])){
+        raw_lab <- sprintf("%.2f", mat_cols[i])
+        if(omit_leading_zero){
+          lab <- sub("^(-?)0\\.", "\\1.", raw_lab)
+        } else {
+          lab <- raw_lab
+        }
+        
+        # choose cex so text fits within 90% of the cell in both width and height
+        base_cex <- cex_lab * 0.6
+        cex_h <- (0.8 * size[i]) / strheight(lab, cex = 1)
+        cex_w <- (0.8 * size[i]) / strwidth(lab, cex = 1)
+        cex_use <- min(base_cex, cex_h, cex_w)
+        
+        if(!plot_rects){
+          rect(x_center - half_size + disp_x_by, y_center - half_size, 
+               x_center + half_size + disp_x_by, y_center + half_size, 
+               col = "white", border = NA, xpd = NA)
+        }
+        
+        if(cex_use > 0){
+          text(x_center + disp_x_by, y_center,
+               labels = lab,
+               cex = cex_use,
+               col = num_col_mat[i],
+               xpd = NA,
+               adj = c(0.5, 0.5))
+        }
+      }
+      
+    }
+    
   }
   
   #top legend
   if(plot_legend){
-    add_continuous_legend(colors = colors, labels = breaks[-1] + diff(breaks)/2, 
-                          x = 1, y = par("usr")[4] + diff(par("usr")[3:4])/(10+ifelse(plot_labels, 0, 10)), 
-                          vertical = F, xpd = NA, positions = 1:100/100, left_below = F,
-                          scientific = F, main = legend_title, w = diff(par("usr")[1:2])/2)
+    leg_y <- pusr[4] + h/(10+ifelse(plot_labels, 0, 10)) + leg_loc_scale[2] * h
+    legend_bb <- add_continuous_legend(colors = colors, 
+                          labels = breaks[-1] + diff(breaks)/2, 
+                          x = 1 + leg_loc_scale[1] * w, 
+                          y = leg_y, 
+                          vertical = F, xpd = NA, positions = 0:100/100, left_below = F,
+                          scientific = F, main = legend_title, 
+                          w = diff(pusr[1:2])/2/nmats, cex.main = cex.leg, 
+                          return_BB = T)
+  }
+  
+  #plot title above legend
+  if(!is.null(main)){
+    main.h <- strheight(main, cex = cex.main)
+    text(x = nc / 2, 
+         y = ifelse(plot_legend, legend_bb[4], nr) + main.h / 2, 
+         labels = main, xpd = NA, font = 2, pos = 3, cex = cex.main)  
+  }
+  
+  if(demarcate_maps & nmats > 1){
+    vdemarc_xlocs <- ((1:nmats-1) * (nr + space_for_sep)) - space_for_sep / 2 + 1/2
+    segments(x0 = vdemarc_xlocs[-1], x1 = vdemarc_xlocs[-1],
+             y0 = pusr[3] - h / 20,
+             y1 = pusr[4]  + h / 20, lwd = lwd_for_lines * 1.5, xpd = NA)
+    text(x = vdemarc_xlocs + (nr+1)/2, y = pusr[3] - h / 10, labels = mat_names, xpd = NA)
+  }
+  
+  #draw a bounding box around the entire heatmap
+  if (outer_border) {
+    if (outer_border_brackets) {
+      
+      vert_off <- nr / 50
+      lat_off  <- nc / 50
+      lat_in   <- nc / 20
+      
+      # LEFT BRACKET
+      segments(0.5 - lat_off, 
+               0.5 - vert_off,
+               0.5 - lat_off,
+               nr + 0.5 + vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+      segments(0.5 - lat_off,
+               nr + 0.5 + vert_off,
+               0.5 + lat_in,
+               nr + 0.5 + vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+      segments(0.5 - lat_off,
+               0.5 - vert_off,
+               0.5 + lat_in,
+               0.5 - vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+      
+      # RIGHT BRACKET
+      segments(nc + 0.5 + lat_off,
+               0.5 - vert_off,
+               nc + 0.5 + lat_off,
+               nr + 0.5 + vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+      segments(nc + 0.5 - lat_in,
+               nr + 0.5 + vert_off,
+               nc + 0.5 + lat_off,
+               nr + 0.5 + vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+      segments(nc + 0.5 - lat_in,
+               0.5 - vert_off,
+               nc + 0.5 + lat_off,
+               0.5 - vert_off,
+               xpd = NA, lwd = border.lwd)
+      
+    } else {
+      rect(0.5, 0.5, nc + 0.5, nr + 0.5, lwd = border.lwd)
+    }
   }
   
 }
+
 
 my_ridgeline <- function(
     d,

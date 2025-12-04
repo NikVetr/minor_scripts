@@ -9,20 +9,20 @@ source("~/repos/Stan2R/R/functions.R")
 
 #generate high level params
 lasso_col <- "orange"
-refit_stan_model <- F
+refit_stan_model <- T
 use_unilasso <- T
 unilasso.lower.limits <- 0
 ps_step <- F
-bayes_model <- "spike_and_slab"
+bayes_model <- c("horseshoe", "spike_and_slab", "NEG")[1]
 rop <- 0.8
-d <- 100
-invert_effects <- F
+d <- 200
+invert_effects <- T
 error_prop_var <- 1
 rs <- c(1, rop^(1:d))
 R <- outer(1:d, 1:d, FUN = function(i, j, rs) rs[abs(i - j) + 1], rs = rs)
 
 #sample inputs
-n <- 250
+n <- 300
 x <- matrix(rnorm(n*d), n, d)
 if(n>d){
   x <- x %*% solve(chol(cov(x))) %*% chol(R)   
@@ -37,7 +37,7 @@ if(invert_effects){
 }
 
 #simulate outcomes w/ B = 1
-nB <- 8
+nB <- 20
 nzi <- sample(1:d, nB, replace = F)
 y <- apply(x[,nzi], 1, sum)
 e_sigma <- sd(y) * error_prop_var

@@ -1,13 +1,62 @@
-############################################################
-##  Dictionary explorer  –  robustness patch
-############################################################
+##  Dictionary explorer
+
 library(data.table)
 library(MotrpacHumanPreSuspensionData)
 
-#precompiled clinical table
-MotrpacHumanPreSuspensionData::cln_curated_ex_performance_testing
+#precompiled clinical table?
+precomp <- MotrpacHumanPreSuspensionData::cln_curated_ex_performance_testing
 
-## 1.  target patterns  (unchanged) -----------------------
+#load pheno data base
+## --- PHENOTYPE (labeled) setup: both cohorts, baseline only ---
+data("pheno")
+ph_fmt <- attach_dictionary(pheno)
+ph_dt  <- data.table::as.data.table(ph_fmt)
+ph_dt[, visitcode_chr := as.character(.SD[[1]]), .SDcols = "visitcode"]
+
+pheno <- attach_dictionary(pheno)
+table(pheno$randomGroupCode)
+table(is.na(ph_dt$randomGroupCode))
+foo <- split(ph_dt$randomGroupCode, ph_dt$study)
+table(foo$`Adult Highly Active`)
+pheno$data$randomGroupCode
+
+table(pheno$randomGroupCode[pheno$study == "Adult Sedentary"], useNA = "always")
+table(pheno$randomGroupCode[pheno$study == "Adult Highly Active"], useNA = "always")
+
+
+## Build DEMO for **all** participants, prioritizing baseline rows when present
+baseline_re <- "(?:ADU|HAU)_(?:BAS|SCP)$"
+
+ph_dt[, pid_num := as.numeric(as.character(pid))]
+ph_dt[, is_base_flag :=
+        grepl(baseline_re, visitcode_chr, ignore.case = TRUE) |
+        grepl("Baseline|\\bBAS\\b|\\bSCP\\b", visitcode_chr, ignore.case = TRUE)]
+
+## Put baseline-looking rows first per pid, then take one row per pid
+setorder(ph_dt, pid_num, -is_base_flag)
+demo <- ph_dt[, .SD[1L], by = pid_num][
+  , .(
+    pid            = pid_num,
+    Timepoint      = as.character(Timepoint),
+    activity_level = as.character(study),         # "Adult Highly Active" / "Adult Sedentary"
+    sex            = as.character(sex_psca),
+    age_years      = as.numeric(calculatedAge),
+    body_weight    = as.numeric(wtkg_pcaa),
+    body_height_cm = as.numeric(htcmavg_hwwt),
+    modality       = as.character(randomGroupCode),
+    visitcode_chr  = visitcode_chr
+  )]
+
+# Calculate BMI
+demo[, bmi := body_weight / (body_height_cm / 100)^2]
+
+# Clean up modality names for clarity
+demo[modality == "ADUEndur", modality := "EE"]
+demo[modality == "ADUResist", modality := "RE"]
+demo[modality == "ADUControl", modality := "Control"]
+baseline_pids <- demo$pid
+
+## 1.  target patterns
 patterns <- list(
   vo2_abs_L          = c("vo2 L","absolute vo2","vo2cart"),
   vo2_max_mlkg       = c("vo2 mL/kg","ml/kg/min","vo2max"),
@@ -56,7 +105,7 @@ patterns$vo2_max_mlkg <- c("mlkg", "vo2max", "vo2_mlkg", "peakvo2", "vo2maxmlkg"
 patterns$steps_avg   <- c("steps_per_day", "avg_steps", "stepsavg")
 patterns$vecmag_avg  <- c(patterns$vecmag_avg, "avg_vector_magnitude", "vmag")
 
-## 2.  safe search function -------------------------------
+## 2.  safe search function
 search_dict <- function(dict, pat_vec) {
   if (is.null(dict) || !"field_name" %in% names(dict)) return(NULL)
   pat <- paste(pat_vec, collapse = "|")
@@ -67,7 +116,8 @@ search_dict <- function(dict, pat_vec) {
   ]
 }
 
-## 3.  iterate through all cln_raw tables -----------------
+## 3.  iterate through all cln_raw tables
+
 all_raw <- c(
   ls("package:MotrpacHumanPreSuspensionData", pattern = "^cln_raw_"),
   "cln_curated_accel_derived_variables_baseline"   # <- add this
@@ -94,7 +144,8 @@ for (var in names(patterns)) {
   }
 }
 
-## 4.  print report --------------------------------------
+## 4.  print report
+
 names(results)
 for (var in names(results)) {
   cat("\n\n", var, "\n\n", sep = "")
@@ -112,9 +163,6 @@ source_specs <- list(
   cln_raw_height_weight_waist_circumference = c(
     pid             = "pid",
     visit_code      = "visit_code",
-    body_weight     = "wtkgavg_hwwt",
-    body_height_cm  = "htcmavg_hwwt",
-    bmi             = "calcbmi_hwwt",
     waist_circum_cm = "wccmavg_hwwt"
   ),
   
@@ -177,16 +225,43 @@ pieces <- vector("list", length(source_specs))
 i <- 1
 for (tbl in names(source_specs)) {
   data(list = tbl, envir = environment())            # load object
-  dt <- as.data.table(get(tbl)$data)                 # each motrdat has $data
+  dt   <- as.data.table(get(tbl)$data)               # each motrdat has $data
   cols <- source_specs[[tbl]]
   
-  sel <- dt[ pid %in% sed_pid &
-               ( !"visit_code" %in% names(dt) | visit_code %in% baseline_visit ),
-             ..cols ]                                # select & rename
+  # start with just the baseline PIDs you already computed from pheno
+  dt <- dt[pid %in% baseline_pids]
+  
+  if ("visit_code" %in% names(dt)) {
+    # Create a flag to identify baseline rows, just like you did for the pheno data
+    dt[, is_base_flag := grepl(baseline_re, visit_code)]
+    
+    # Order the data so that for each pid, the baseline row comes first
+    if ("days_visit" %in% names(dt)) {
+      setorder(dt, pid, -is_base_flag, days_visit)
+    } else {
+      setorder(dt, pid, -is_base_flag)
+    }
+    
+    # Now, take the first row for each pid
+    dt <- dt[, .SD[1L], by = pid]
+    
+  } else {
+    # This fallback logic for tables without visit_code is fine
+    if ("days_visit" %in% names(dt)) {
+      setorder(dt, pid, days_visit)
+      dt <- dt[, .SD[1L], by = pid]
+    } else {
+      dt <- dt[, .SD[1L], by = pid]
+    }
+  }
+  
+  # finally select & rename
+  sel <- dt[, ..cols]
   setnames(sel, old = cols, new = names(cols))
   pieces[[i]] <- sel
   i <- i + 1
 }
+
 
 clin_wide <- Reduce(function(x, y) merge(x, y, by = "pid", all = TRUE),
                     pieces)
@@ -202,7 +277,24 @@ clin_wide[, `:=`(
   handgrip_max        = pmax(grip1, grip2, grip3, na.rm = TRUE)
 )]
 
+#### merge in demographic variables ####
+setDT(clin_wide)
+clin_wide <- merge(
+  demo[, .(pid, Timepoint, activity_level, sex, age_years, body_weight, body_height_cm, bmi, modality, visitcode_chr)],
+  clin_wide,
+  by = "pid",
+  all.x = TRUE
+)
 clin_wide <- as.data.frame(clin_wide)
 clin_wide <- clin_wide[,(colMeans(apply(clin_wide, 2, is.na)) < 0.99)]
 
-fwrite(clin_wide, "~/data/smontgom/motrpac_precovid_sedentary_clinical_obs.txt")
+## put a few useful columns up front
+front <- c("pid","Timepoint","activity_level","modality","sex","age_years", "body_weight", "body_height_cm", "bmi", "modality", "visitcode_chr","visit_code")
+setcolorder(clin_wide, unique(c(front, names(clin_wide))))
+
+## Quick sanity check
+head(clin_wide)
+table(clin_wide$activity_level)
+clin_wide$body_weight
+
+fwrite(clin_wide, "~/data/motrpac_precovid_clinical_obs.txt")

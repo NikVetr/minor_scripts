@@ -8,9 +8,10 @@ library(grid)
 library(png)
 
 #source hypercube functions
-source("~/scripts/minor_scripts/postdoc/collapse_hcube_efficient.R")
-source("~/scripts/minor_scripts/postdoc/true_text_dim_functions.R")
-source("~/scripts/minor_scripts/postdoc/rotate_hypercube_functions.R")
+root_dir <- "~/repos/shape_rotation/"
+source("~/repos/shape_rotation/src/collapse_hcube_efficient.R")
+source("~/repos/shape_rotation/src/true_text_dim_functions.R")
+source("~/repos/shape_rotation/src/rotate_hypercube_functions.R")
 
 #### define unit hypercube ####
 set.seed(1)
@@ -45,12 +46,17 @@ plane_vectors <- cbind(c(1, rep(0,k-1)),
 view_dir <- qr.Q(qr(plane_vectors), complete=TRUE)[, 3, drop = F]
 
 #file paths
-vid_dir <- "~/shape_rotation/"
-frames_dir <- paste0(vid_dir, "frames/")
+frames_dir <- paste0(root_dir, "frames/")
+vid_dir <- paste0(root_dir, "videos/")
 if(!dir.exists(frames_dir)){
   dir.create(frames_dir, recursive = T)  
 } else {
   all(file.remove(list.files(frames_dir, full.names = T)))
+}
+if(!dir.exists(vid_dir)){
+  dir.create(vid_dir, recursive = T)  
+} else {
+  all(file.remove(list.files(vid_dir, full.names = T)))
 }
 
 #colors
@@ -340,7 +346,7 @@ hypercube_names <- c(
   "ennearact (ℝ⁹)"
 )
 hypercube_names <- setNames(hypercube_names, sapply(strsplit(hypercube_names, " "), head, 1))
-labels_dir <- paste0(vid_dir, "labels/")
+labels_dir <- paste0(root_dir, "labels/")
 if (!dir.exists(labels_dir)) dir.create(labels_dir, recursive = TRUE)
 label_paths <- paste0(labels_dir, names(hypercube_names), ".png")
 
@@ -621,22 +627,22 @@ if(use_rgl){
 base_fps <- 60
 fps <- base_fps / thin
 
-output_temp <- "rotation_tmp.mp4" 
-output_final <- "rotation.mp4"
+output_temp <- paste0(vid_dir, "rotation_tmp.mp4")
+output_final <- paste0(vid_dir, "rotation.mp4")
 
 # Generate animation video (no reverse, no concat)
 system(paste0(
-  "cd ", vid_dir, "; ",
+  "cd ", root_dir, "; ",
   "ffmpeg -y -r ", fps, " -f image2 -s 800x800 ",
   "-i frames/%05d.png -vcodec libx264 -crf 25 -pix_fmt yuv420p ", output_temp
 ))
 
 # Atomic rename into place
 file.rename(
-  file.path(vid_dir, output_temp),
-  file.path(vid_dir, output_final)
+  file.path(root_dir, output_temp),
+  file.path(root_dir, output_final)
 )
 
 # Optional: play the video
-cat("mpv ", file.path(vid_dir, output_final), "\n")
+cat("mpv ", file.path(root_dir, output_final), "\n")
 

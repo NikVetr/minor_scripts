@@ -354,3 +354,83 @@ compact_by_name <- function(df, verbose = TRUE) {
   rownames(out) <- rownames(df)
   out
 }
+
+pp_coverage <- function(y_obs, yrep_mat, level = 0.95) {
+  alpha <- 1 - level
+  qs <- apply(yrep_mat, 1, quantile, probs = c(alpha/2, 1 - alpha/2))
+  lower <- qs[1, ]
+  upper <- qs[2, ]
+  covered <- (y_obs >= lower) & (y_obs <= upper)
+  mean(covered)
+}
+
+
+make_pf <- function(i) {
+  mult <- as.numeric(combos[i, paste0("f", seq_len(G)), drop = TRUE])  # f1..fG
+  w <- w_anchor * mult
+  pf <- rep_by_group(w, p_vec)
+  pf / mean(pf)
+}
+
+tau0_block <- function(p0, d, n, sigma = 1) {
+  (p0 / (d - p0)) * (sigma / sqrt(n))
+}
+
+calibrate_isotonic <- function(y_train_z, yhat_train_z, yhat_test_z) {
+  # handle degenerate case
+  v <- var(yhat_train_z)
+  if (is.na(v) || v == 0) {
+    # no variation in predictions, just recenter to mean(y_train_z)
+    a <- mean(y_train_z) - mean(yhat_train_z)
+    yhat_train_cal_z <- yhat_train_z + a
+    yhat_test_cal_z  <- yhat_test_z  + a
+    
+    cat("# calibrate_isotonic: var(pred) == 0, using simple shift\n")
+    
+    return(list(
+      yhat_train_cal_z = yhat_train_cal_z,
+      yhat_test_cal_z  = yhat_test_cal_z,
+      iso              = NULL
+    ))
+  }
+  
+  # sort training predictions so isoreg sees them in order
+  ord <- order(yhat_train_z)
+  x_ord <- yhat_train_z[ord]
+  y_ord <- y_train_z[ord]
+  
+  # fit monotone (nondecreasing) regression of y on yhat
+  iso <- isoreg(x_ord, y_ord)
+  
+  # isoreg stores x and fitted yf on the *ordered* x grid
+  x_iso  <- iso$x
+  yf_iso <- iso$yf
+  
+  # project back to original train/test predictions via interpolation
+  # rule = 2: use constant extrapolation outside [min(x_iso), max(x_iso)]
+  # ties = "ordered": respect the order of x values
+  yhat_train_cal_z <- approx(
+    x = x_iso,
+    y = yf_iso,
+    xout = yhat_train_z,
+    rule = 2,
+    ties = "ordered"
+  )$y
+  
+  yhat_test_cal_z <- approx(
+    x = x_iso,
+    y = yf_iso,
+    xout = yhat_test_z,
+    rule = 2,
+    ties = "ordered"
+  )$y
+  
+  cat("# calibrate_isotonic: fitted monotone calibration with",
+      length(unique(x_iso)), "knots\n")
+  
+  list(
+    yhat_train_cal_z = yhat_train_cal_z,
+    yhat_test_cal_z  = yhat_test_cal_z,
+    iso              = iso
+  )
+}
